@@ -1,0 +1,165 @@
+#:schema https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/pyproject.json
+[build-system]
+build-backend = "hatchling.build"
+requires      = ["hatchling"]
+
+[project]
+authors = [{ name = "dcode", email = "dcode@users.noreply.github.com" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Multimedia :: Sound/Audio :: Players",
+  "Typing :: Typed",
+]
+dependencies = [
+  "cyclopts",
+  "httpx",
+  "orjson",
+  "platformdirs",
+  "pydantic",
+  "rich",
+  "structlog",
+  "textual>=7.5.0",
+]
+
+description     = "Async Python client for Calm.com internal API"
+dynamic         = ["version"]
+keywords        = ["api", "async", "calm", "client", "meditation"]
+license         = "MIT"
+name            = "calm-client"
+readme          = "README.md"
+requires-python = ">=3.12"
+
+[project.urls]
+Documentation = "https://github.com/dcode/python-calm-client#readme"
+Issues        = "https://github.com/dcode/python-calm-client/issues"
+Source        = "https://github.com/dcode/python-calm-client"
+
+[project.optional-dependencies]
+player = ["Pillow>=10.0", "python-mpv>=1.0.8", "rich-pixels>=3.0.0"]
+
+
+[dependency-groups]
+dev = [
+  "hatch>=1.15.1",
+  "mypy>=1.19.1",
+  "pyrefly>=0.52.0",
+  "pytest-asyncio>=1.2.0",
+  "pytest-cov>=7.0.0",
+  "pytest-deepassert",
+  "pytest>=8.4.2",
+  "respx>=0.22.0",
+  "ruff>=0.15.1",
+]
+
+
+[project.scripts]
+calm = "calm_client.cli:app.meta"
+
+[[tool.uv.index]]
+default = true
+name    = "pypi"
+url     = "https://pypi.org/simple/"
+
+
+################################################################################
+# Static Analysis (Linting & Formatting)
+################################################################################
+
+[tool.hatch.envs.hatch-static-analysis]
+dependencies = ["ruff>=0.14.14"]
+
+
+[tool.hatch.version]
+path = "src/calm_client/__version__.py"
+
+[tool.ruff]
+line-length    = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+ignore = ["D203", "D213"]
+select = [
+  "A",
+  "B",
+  "C4",
+  "D",
+  "E",
+  "F",
+  "I",
+  "N",
+  "RUF",
+  "SIM",
+  "TC",
+  "UP",
+  "W",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["calm_client"]
+section-order = [
+  "future",
+  "standard-library",
+  "third-party",
+  # Keep first-party and local last
+  "first-party",
+  "local-folder",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D100", "D101", "D102", "D103", "S101"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/calm_client"]
+
+[tool.hatch.envs.default]
+dependency-groups = ["dev"]
+env-vars = { "UV_DEFAULT_INDEX" = "https://pypi.org/simple/" }
+installer = "uv"
+
+
+################################################################################
+# Type Checking
+################################################################################
+
+[tool.hatch.envs.typing]
+dependency-groups = ["dev"]
+
+[tool.hatch.envs.typing.scripts]
+check = "uv run mypy src/ tests/"
+
+[tool.mypy]
+check_untyped_defs    = true
+disallow_untyped_defs = true
+files                 = ["src", "tests"]
+python_version        = "3.12"
+warn_return_any       = true
+warn_unused_configs   = true
+
+
+################################################################################
+# Testing
+################################################################################
+
+[tool.hatch.envs.hatch-test]
+dependency-groups = ["dev"]
+
+[[tool.hatch.envs.hatch-test.matrix]]
+python = ["3.12", "3.14"]
+
+[tool.pytest.ini_options]
+addopts = ["--cov=src", "--deepassert", "--import-mode=importlib"]
+
+[tool.coverage]
+report.exclude_also = ["if TYPE_CHECKING:"]
+report.omit         = ["tests/*", "src/calm_client/__*__.py"]
+run.branch          = true
+run.omit            = ["tests/*", "src/calm_client/__*__.py"]
