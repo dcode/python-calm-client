@@ -1,0 +1,41 @@
+# Publishes to PyPI on GitHub Release using Trusted Publishers (OIDC).
+#
+# Setup required on PyPI:
+#   1. Go to https://pypi.org/manage/project/calm-client/settings/publishing/
+#   2. Add a "pending publisher" (or trusted publisher if project exists)
+#   3. Set: Owner=dcode, Repository=python-calm-client, Workflow=publish.yml
+#   4. Optionally set Environment=pypi for additional protection
+#
+name: Publish to PyPI
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  pypi-publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Install the project
+        run: uv sync --frozen --all-extras --all-groups
+      - name: Build package
+        run: uv run hatch build
+      - name: Run tests
+        run: uv run hatch test
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true

@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local Development & Secrets
+/data/
+.idea/
+.vscode/
+.coverage
+pytest.xml
+pytest-coverage.txt
+.DS_Store
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# direnv
+.envrc
+.direnv/
