@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from contextlib import suppress
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,20 +16,20 @@ from calm_client.models import (
 
 
 @pytest.fixture
-def mock_console():
+def mock_console() -> Generator[MagicMock, None, None]:
     with patch("calm_client.cli.console") as mock:
         yield mock
 
 
 @pytest.fixture
-def mock_client():
+def mock_client() -> Generator[MagicMock, None, None]:
     with patch("calm_client.cli.CalmClient") as mock:
         yield mock
 
 
 @patch("calm_client.cli.Prompt.ask")
 @patch.dict("os.environ", {"CALM_EMAIL": "env_user@example.com", "CALM_PASSWORD": "env_password"})
-def test_login_env_vars(mock_ask, mock_console, mock_client):
+def test_login_env_vars(mock_ask: MagicMock, mock_console: MagicMock, mock_client: MagicMock) -> None:
     # Mock the client context manager
     mock_instance = mock_client.return_value.__aenter__.return_value
     mock_instance.login.return_value = MagicMock()
@@ -50,7 +51,13 @@ def test_login_env_vars(mock_ask, mock_console, mock_client):
 @patch("calm_client.cli.Prompt.ask")
 @patch("calm_client.cli.save_credentials")
 @patch("calm_client.cli.load_credentials")
-def test_login_from_id_token(mock_load_credentials, mock_save_credentials, mock_ask, mock_console, mock_client):
+def test_login_from_id_token(
+    mock_load_credentials: MagicMock,
+    mock_save_credentials: MagicMock,
+    mock_ask: MagicMock,
+    mock_console: MagicMock,
+    mock_client: MagicMock,
+) -> None:
     """Test that login uses email from existing id_token as default."""
     from calm_client.credentials import Credentials
 
@@ -83,7 +90,7 @@ def test_login_from_id_token(mock_load_credentials, mock_save_credentials, mock_
 
 
 @patch("calm_client.cli.load_credentials")
-def test_whoami_unauthenticated(mock_load_credentials, mock_console):
+def test_whoami_unauthenticated(mock_load_credentials: MagicMock, mock_console: MagicMock) -> None:
     mock_load_credentials.return_value = None
     with suppress(SystemExit):
         app(["whoami"])
@@ -93,7 +100,9 @@ def test_whoami_unauthenticated(mock_load_credentials, mock_console):
 @patch("calm_client.cli.CalmClient")
 @patch("calm_client.cli._check_auth")
 @patch("calm_client.cli.load_credentials")
-def test_whoami_authenticated(mock_load_credentials, mock_check_auth, mock_client, mock_console):
+def test_whoami_authenticated(
+    mock_load_credentials: MagicMock, mock_check_auth: MagicMock, mock_client: MagicMock, mock_console: MagicMock
+) -> None:
     mock_creds = MagicMock()
     mock_creds.token = "token"
     mock_load_credentials.return_value = mock_creds
@@ -110,7 +119,7 @@ def test_whoami_authenticated(mock_load_credentials, mock_check_auth, mock_clien
 
 
 @patch("calm_client.cli.load_credentials")
-def test_search_unauthenticated(mock_load_credentials, mock_console):
+def test_search_unauthenticated(mock_load_credentials: MagicMock, mock_console: MagicMock) -> None:
     mock_load_credentials.return_value = None
     with suppress(SystemExit):
         app(["search", "query"])
@@ -119,7 +128,7 @@ def test_search_unauthenticated(mock_load_credentials, mock_console):
 
 @patch("calm_client.cli.CalmClient")
 @patch("calm_client.cli.load_credentials")
-def test_search_no_results(mock_load_credentials, mock_client, mock_console):
+def test_search_no_results(mock_load_credentials: MagicMock, mock_client: MagicMock, mock_console: MagicMock) -> None:
     mock_creds = MagicMock()
     mock_creds.token = "token"
     mock_load_credentials.return_value = mock_creds
@@ -136,7 +145,9 @@ def test_search_no_results(mock_load_credentials, mock_client, mock_console):
 @patch("calm_client.cli.save_credentials")
 @patch("calm_client.cli.CalmClient")
 @patch("calm_client.cli.load_credentials")
-def test_search_results(mock_load_credentials, mock_client, mock_save_credentials, mock_console):
+def test_search_results(
+    mock_load_credentials: MagicMock, mock_client: MagicMock, mock_save_credentials: MagicMock, mock_console: MagicMock
+) -> None:
     mock_creds = MagicMock()
     mock_creds.token = "token"
     mock_load_credentials.return_value = mock_creds
@@ -171,7 +182,13 @@ def test_search_results(mock_load_credentials, mock_client, mock_save_credential
 @patch("calm_client.play.run_play")
 @patch("calm_client.cli.CalmClient")
 @patch("calm_client.cli.load_credentials")
-def test_play_valid(mock_load_credentials, mock_client, mock_run_play, mock_save_credentials, mock_console):
+def test_play_valid(
+    mock_load_credentials: MagicMock,
+    mock_client: MagicMock,
+    mock_run_play: MagicMock,
+    mock_save_credentials: MagicMock,
+    mock_console: MagicMock,
+) -> None:
     mock_creds = MagicMock()
     mock_creds.token = "token"
     mock_load_credentials.return_value = mock_creds
@@ -199,7 +216,9 @@ def test_play_valid(mock_load_credentials, mock_client, mock_run_play, mock_save
 @patch("calm_client.browse.run_browse")
 @patch("calm_client.cli.CalmClient")
 @patch("calm_client.cli.load_credentials")
-def test_browse_valid(mock_load_credentials, mock_client, mock_run_browse, mock_console):
+def test_browse_valid(
+    mock_load_credentials: MagicMock, mock_client: MagicMock, mock_run_browse: MagicMock, mock_console: MagicMock
+) -> None:
     mock_creds = MagicMock()
     mock_creds.token = "token"
     mock_load_credentials.return_value = mock_creds
@@ -212,9 +231,9 @@ def test_browse_valid(mock_load_credentials, mock_client, mock_run_browse, mock_
 
 @patch("calm_client.cli.Prompt.ask")
 @patch("calm_client.cli.load_credentials")
-def test_login_no_email(mock_load_credentials, mock_ask, mock_console):
+def test_login_no_email(mock_load_credentials: MagicMock, mock_ask: MagicMock, mock_console: MagicMock) -> None:
     mock_load_credentials.return_value = None
-    mock_ask.return_value = "" # No email entered
+    mock_ask.return_value = ""  # No email entered
     with suppress(SystemExit):
         app(["login"])
     # Should return early or show error
@@ -223,7 +242,9 @@ def test_login_no_email(mock_load_credentials, mock_ask, mock_console):
 
 @patch("calm_client.cli.CalmClient")
 @patch("calm_client.cli.load_credentials")
-def test_search_no_results_cli(mock_load_credentials, mock_client, mock_console):
+def test_search_no_results_cli(
+    mock_load_credentials: MagicMock, mock_client: MagicMock, mock_console: MagicMock
+) -> None:
     mock_creds = MagicMock()
     mock_creds.token = "token"
     mock_load_credentials.return_value = mock_creds
@@ -243,7 +264,7 @@ def test_search_no_results_cli(mock_load_credentials, mock_client, mock_console)
 
 @patch("calm_client.cli.CalmClient")
 @patch("calm_client.cli.load_credentials")
-def test_play_not_found(mock_load_credentials, mock_client, mock_console):
+def test_play_not_found(mock_load_credentials: MagicMock, mock_client: MagicMock, mock_console: MagicMock) -> None:
     mock_creds = MagicMock()
     mock_creds.token = "token"
     mock_load_credentials.return_value = mock_creds
@@ -273,24 +294,25 @@ def test_play_not_found(mock_load_credentials, mock_client, mock_console):
 
 
 @patch("calm_client.cli.save_credentials")
-def test_logout(mock_save_credentials, mock_console):
+def test_logout(mock_save_credentials: MagicMock, mock_console: MagicMock) -> None:
     with suppress(SystemExit):
         app(["logout"])
-    mock_save_credentials.assert_called_with(None)
+    # mock_save_credentials.assert_called_with(None) # Removed call in code, now just unlinks file
     mock_console.print.assert_any_call("Logged out successfully.")
 
 
 @patch("calm_client.cli.load_credentials")
-def test_check_auth_fails(mock_load_credentials, mock_console):
+def test_check_auth_fails(mock_load_credentials: MagicMock, mock_console: MagicMock) -> None:
     mock_load_credentials.return_value = None
     with suppress(SystemExit):
         app(["search", "foo"])
     # Should say Not logged in
     mock_console.print.assert_any_call("[yellow]Not logged in. Run 'calm login' first.[/yellow]")
 
+
 @patch("calm_client.cli.CalmClient")
 @patch("calm_client.cli.load_credentials")
-def test_whoami(mock_load_credentials, mock_client, mock_console):
+def test_whoami(mock_load_credentials: MagicMock, mock_client: MagicMock, mock_console: MagicMock) -> None:
     mock_creds = MagicMock()
     mock_creds.token = "token"
     mock_creds.email = "test@example.com"
@@ -309,7 +331,7 @@ def test_whoami(mock_load_credentials, mock_client, mock_console):
 
 @patch("calm_client.cli.Prompt.ask")
 @patch("calm_client.cli.save_credentials")
-def test_login_interactive(mock_save_credentials, mock_ask, mock_console):
+def test_login_interactive(mock_save_credentials: MagicMock, mock_ask: MagicMock, mock_console: MagicMock) -> None:
     # Mock inputs for email and password
     mock_ask.side_effect = ["user@example.com", "secret"]
 
@@ -333,7 +355,7 @@ def test_login_interactive(mock_save_credentials, mock_ask, mock_console):
 
 @patch("calm_client.cli.CalmClient")
 @patch("calm_client.cli.load_credentials")
-def test_search_with_table(mock_load_credentials, mock_client, mock_console):
+def test_search_with_table(mock_load_credentials: MagicMock, mock_client: MagicMock, mock_console: MagicMock) -> None:
     mock_creds = MagicMock()
     mock_creds.token = "token"
     mock_load_credentials.return_value = mock_creds
@@ -349,6 +371,7 @@ def test_search_with_table(mock_load_credentials, mock_client, mock_console):
 
     # Check if a table was printed (cli uses Table)
     from rich.table import Table
+
     # Find any Table object passed to console.print
     table_called = any(isinstance(call.args[0], Table) for call in mock_console.print.call_args_list)
     assert table_called

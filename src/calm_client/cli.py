@@ -32,8 +32,6 @@ CONFIG_DIR = Path(user_config_dir("calm-client", "dcode"))
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 
-
-
 @app.meta.default
 def _meta(
     *tokens: Annotated[str, cyclopts.Parameter(show=False, allow_leading_hyphen=True)],
@@ -198,7 +196,8 @@ def whoami() -> None:
 @app.command
 def logout() -> None:
     """Log out by clearing stored credentials."""
-    save_credentials(None)
+    if CONFIG_FILE.exists():
+        CONFIG_FILE.unlink()
     console.print("Logged out successfully.")
 
 

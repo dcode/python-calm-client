@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import shutil
 import threading
+import typing
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -17,15 +18,16 @@ if TYPE_CHECKING:
 
 from calm_client.logging import logger
 
+
 def _check_mpv() -> None:
     """Raise a helpful error if ``mpv`` is not installed on the system."""
     try:
-        import mpv as _mpv  # noqa: F401
+        import mpv as _mpv  # type: ignore[import-untyped,unused-ignore] # noqa: F401
     except ImportError:
         msg = (
-            "The 'python-mpv' package is required for audio playback.\n"
-            "Install it with:\n"
-            "  pip install 'calm-client[player]'\n"
+            "The 'python-mpv' package is required for audio playback.\\n"
+            "Install it with:\\n"
+            "  pip install 'calm-client[player]'\\n"
             "  # or: pipx inject calm-client python-mpv"
         )
         logger.error("mpv_python_missing")
@@ -160,10 +162,10 @@ class CalmPlayer:
             t.join(timeout=2.0)  # Don't block forever
 
     @staticmethod
-    def _terminate_player(player: object) -> None:
+    def _terminate_player(player: typing.Any) -> None:
         """Terminate an mpv player instance, suppressing errors."""
         with contextlib.suppress(Exception):
-            player.terminate()  # type: ignore[union-attr]
+            player.terminate()
 
     def _on_time_pos(self, _name: str, value: float | None) -> None:
         """Handle time-pos property change from mpv."""

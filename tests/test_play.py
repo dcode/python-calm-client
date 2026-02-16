@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -8,7 +9,7 @@ from calm_client.play import PlayApp
 
 class TestPlayApp:
     @pytest.fixture
-    def mock_program(self):
+    def mock_program(self) -> MagicMock:
         guide = MagicMock(spec=Guide)
         guide.title = "Test Guide"
         guide.stream_url = "http://example.com/stream.mp3"
@@ -19,7 +20,7 @@ class TestPlayApp:
         return program
 
     @pytest.fixture
-    def mock_player(self):
+    def mock_player(self) -> Generator[MagicMock, None, None]:
         with patch("calm_client.play.CalmPlayer") as mock:
             player_instance = mock.return_value
             player_instance.duration = 100.0
@@ -33,7 +34,7 @@ class TestPlayApp:
             yield player_instance
 
     @pytest.mark.asyncio
-    async def test_play_app_mount_and_quit(self, mock_program, mock_player):
+    async def test_play_app_mount_and_quit(self, mock_program: MagicMock, mock_player: MagicMock) -> None:
         app = PlayApp(mock_program, 0)
         async with app.run_test() as pilot:
             # Check if playback started
@@ -52,7 +53,7 @@ class TestPlayApp:
         mock_player.shutdown.assert_called()
 
     @pytest.mark.asyncio
-    async def test_play_controls(self, mock_program, mock_player):
+    async def test_play_controls(self, mock_program: MagicMock, mock_player: MagicMock) -> None:
         app = PlayApp(mock_program, 0)
         async with app.run_test() as pilot:
             # Space to pause
@@ -68,7 +69,7 @@ class TestPlayApp:
             mock_player.seek.assert_called_with(-10)
 
     @pytest.mark.asyncio
-    async def test_playback_error(self, mock_program):
+    async def test_playback_error(self, mock_program: MagicMock) -> None:
         # Setup program with no URL
         mock_program.guides[0].stream_url = None
 
@@ -83,7 +84,7 @@ class TestPlayApp:
         # If we reached here without hanging, it likely exited.
 
     @pytest.mark.asyncio
-    async def test_player_init_error(self, mock_program):
+    async def test_player_init_error(self, mock_program: MagicMock) -> None:
         with patch("calm_client.play.CalmPlayer", side_effect=RuntimeError("No mpv")):
             app = PlayApp(mock_program, 0)
             async with app.run_test() as _:

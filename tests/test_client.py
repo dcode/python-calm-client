@@ -27,7 +27,7 @@ async def test_login_success(respx_mock: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_login_session_handshake(respx_mock):
+async def test_login_session_handshake(respx_mock: Any) -> None:
     """Test that login performs session handshake and retrieves session_token."""
     # Mock Auth0 token endpoint
     respx_mock.post("https://oneid.calm.com/oauth/token").mock(
@@ -44,9 +44,7 @@ async def test_login_session_handshake(respx_mock):
     )
 
     # Mock device registration
-    respx_mock.post("https://www.calm.com/webapi/authproxy/device").mock(
-        return_value=Response(200, json={})
-    )
+    respx_mock.post("https://www.calm.com/webapi/authproxy/device").mock(return_value=Response(200, json={}))
 
     # Mock v2/me to return session token
     respx_mock.get("https://www.calm.com/webapi/authproxy/v2/me").mock(
@@ -119,7 +117,7 @@ async def test_ensure_valid_token_refresh(respx_mock: Any) -> None:
 
     from calm_client.credentials import Credentials
 
-    creds = Credentials(access_token="expired", refresh_token="ref", expires_at=time.time() - 10)
+    creds = Credentials(token="expired", refresh_token="ref", expires_at=time.time() - 10)
 
     async with CalmClient(creds) as client:
         # This should trigger refresh

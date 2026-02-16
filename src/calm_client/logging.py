@@ -37,7 +37,7 @@ def configure_logging(*, level: int = logging.WARNING) -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
-        ]
+        ],
     )
     file_handler.setFormatter(json_formatter)
 
@@ -51,7 +51,7 @@ def configure_logging(*, level: int = logging.WARNING) -> None:
             structlog.stdlib.add_log_level,
             structlog.stdlib.add_logger_name,
             structlog.processors.TimeStamper(fmt="%H:%M:%S"),
-        ]
+        ],
     )
     console_handler.setFormatter(console_formatter)
 
@@ -83,7 +83,7 @@ def configure_logging(*, level: int = logging.WARNING) -> None:
     ]
 
     structlog.configure(
-        processors=processors,
+        processors=processors,  # type: ignore[arg-type]
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,

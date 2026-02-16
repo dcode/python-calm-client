@@ -142,7 +142,7 @@ class Credentials(BaseModel):
 
         These credentials have no refresh capability and no expiry tracking.
         """
-        return cls(access_token=token)
+        return cls(token=token)
 
     def __repr__(self) -> str:
         """Return a safe repr that does not leak the token."""

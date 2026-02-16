@@ -72,10 +72,10 @@ def _resize_image(data: bytes, width: int = 16, height: int = 16) -> object | No
     if not _ART_AVAILABLE:
         return None
     try:
-        img = PILImage.open(io.BytesIO(data))
+        img: PILImage.Image = PILImage.open(io.BytesIO(data))
         img = img.convert("RGBA")
         img = img.resize((width, height), PILImage.Resampling.LANCZOS)
-        return Pixels.from_image(img)
+        return Pixels.from_image(img)  # type: ignore[no-any-return]
     except Exception:
         return None
 

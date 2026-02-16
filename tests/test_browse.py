@@ -1,9 +1,10 @@
 """Tests for the browse TUI."""
 
+from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from textual.widgets import Input, Label, Static
+from textual.widgets import Input, Label, ProgressBar, Static
 
 from calm_client.browse import BrowseApp, CatalogCard
 from calm_client.client import CalmClient
@@ -32,7 +33,7 @@ def mock_client() -> MagicMock:
 
 
 @pytest.fixture
-def mock_player():
+def mock_player() -> Generator[MagicMock, None, None]:
     with patch("calm_client.player.CalmPlayer") as mock:
         player_instance = mock.return_value
         player_instance.stop = MagicMock()
@@ -63,7 +64,7 @@ def sample_feed() -> FeedResponse:
 
 
 @pytest.mark.asyncio
-async def test_app_mount_and_quit(mock_client, mock_player):
+async def test_app_mount_and_quit(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test app startup and clean exit."""
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
@@ -78,7 +79,9 @@ async def test_app_mount_and_quit(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_navigation_category_to_grid(mock_client, sample_feed, mock_player):
+async def test_navigation_category_to_grid(
+    mock_client: MagicMock, sample_feed: FeedResponse, mock_player: MagicMock
+) -> None:
     """Test navigating from category list to catalog grid."""
     mock_client.get_category_feed.return_value = sample_feed
 
@@ -98,7 +101,7 @@ async def test_navigation_category_to_grid(mock_client, sample_feed, mock_player
 
 
 @pytest.mark.asyncio
-async def test_search_flow(mock_client, mock_player):
+async def test_search_flow(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test search input and results."""
     item = SearchItem(title="Found It", content_id="s1", item_type="audio")
     search_res = SearchResponse(items=[item], total_item_number=1)
@@ -126,7 +129,7 @@ async def test_search_flow(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_favorites_flow(mock_client, mock_player):
+async def test_favorites_flow(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test loading favorites."""
     item = PackItem(title="Fav One", content_id="f1", item_type="audio")
     mock_client.get_favorites.return_value = [item]
@@ -144,7 +147,7 @@ async def test_favorites_flow(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_drill_down_pack(mock_client, mock_player):
+async def test_drill_down_pack(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test drilling down into a pack."""
     item = PackItem(title="Inner Item", content_id="i1", item_type="audio")
     outer_pack = Pack(title="Outer Pack", items=[item])
@@ -175,24 +178,15 @@ async def test_drill_down_pack(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_playback_flow(mock_client, mock_player):
+async def test_playback_flow(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test clicking a card to play it."""
-    item = PackItem(
-        title="Play Me",
-        content_id="c1",
-        program_id="p1",
-        item_type="program",
-        subtitle="Sub"
-    )
+    item = PackItem(title="Play Me", content_id="c1", program_id="p1", item_type="program", subtitle="Sub")
 
     guide = Guide(id="g1", title="Track 1", assets=[Asset(url="url", content_type="a", duration=10)])
     prog = Program(title="Prog", id="p1", guides=[guide])
     mock_client.get_program.return_value = prog
 
-    feed = FeedResponse(
-        title="F",
-        packs=[Pack(title="P", items=[item])]
-    )
+    feed = FeedResponse(title="F", packs=[Pack(title="P", items=[item])])
     mock_client.get_category_feed.return_value = feed
 
     app = BrowseApp(mock_client)
@@ -225,7 +219,7 @@ async def test_playback_flow(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_search_failure(mock_client):
+async def test_search_failure(mock_client: MagicMock) -> None:
     """Test search with API failure."""
     mock_client.search.side_effect = Exception("Search Failed")
     app = BrowseApp(mock_client)
@@ -239,9 +233,9 @@ async def test_search_failure(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_favorites_empty(mock_client):
+async def test_favorites_empty(mock_client: MagicMock) -> None:
     """Test showing favorites when empty."""
-    mock_client.get_favorites.return_value = [] # Correct return type: list
+    mock_client.get_favorites.return_value = []  # Correct return type: list
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
         await pilot.press("f")
@@ -252,13 +246,13 @@ async def test_favorites_empty(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_maximize_player(mock_client, mock_player):
+async def test_maximize_player(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test maximizing player view."""
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
         # Simulate player being active (bar mode)
         app._player_mode = "bar"
-        app._player = mock_player # Ensure player is set (it is by init but let's be safe if logic changed)
+        app._player = mock_player  # Ensure player is set (it is by init but let's be safe if logic changed)
 
         # Trigger 'm'
         await pilot.press("m")
@@ -272,8 +266,10 @@ async def test_maximize_player(mock_client, mock_player):
         await pilot.press("escape")
         await pilot.pause()
         assert app.query_one("#maximized-player").styles.display == "none"
+
+
 @pytest.mark.asyncio
-async def test_back_navigation(mock_client, mock_player):
+async def test_back_navigation(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test back navigation logic."""
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
@@ -295,12 +291,16 @@ async def test_back_navigation(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_player_controls(mock_client, mock_player):
+async def test_player_controls(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test player controls (pause, stop, skip)."""
-    prog = Program(title="P", id="p1", guides=[
-        Guide(id="g1", title="T1", assets=[Asset(url="u1", content_type="a", duration=10)]),
-        Guide(id="g2", title="T2", assets=[Asset(url="u2", content_type="a", duration=10)])
-    ])
+    prog = Program(
+        title="P",
+        id="p1",
+        guides=[
+            Guide(id="g1", title="T1", assets=[Asset(url="u1", content_type="a", duration=10)]),
+            Guide(id="g2", title="T2", assets=[Asset(url="u2", content_type="a", duration=10)]),
+        ],
+    )
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
         app._current_program = prog
@@ -324,7 +324,7 @@ async def test_player_controls(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_player_progress_update(mock_client, mock_player):
+async def test_player_progress_update(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test the progress timer update logic."""
     app = BrowseApp(mock_client)
     async with app.run_test():
@@ -336,13 +336,19 @@ async def test_player_progress_update(mock_client, mock_player):
         # Trigger internal UI update
         app._update_player_ui()
 
-        bar = app.query_one("#now-playing-bar")
+        # Cast to ProgressBar or similar if needed, but NowPlayingBar is a custom widget
+        # Let's inspect NowPlayingBar definition if errors persist.
+        # It's a container.
+        # But here we access .position and .duration on it.
+        # If NowPlayingBar has these properties, we just need to type check the query.
+        # For now, let's ignore or cast.
+        bar: MagicMock = app.query_one("#now-playing-bar")  # type: ignore[assignment]
         assert bar.position == 10.0
         assert bar.duration == 100.0
 
 
 @pytest.mark.asyncio
-async def test_category_caching(mock_client):
+async def test_category_caching(mock_client: MagicMock) -> None:
     """Test that categories are cached after first load."""
     app = BrowseApp(mock_client)
     feed = FeedResponse(title="Cached", packs=[])
@@ -361,7 +367,7 @@ async def test_category_caching(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_player_bar_expand(mock_client, mock_player):
+async def test_player_bar_expand(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test expanding the player bar."""
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
@@ -377,7 +383,7 @@ async def test_player_bar_expand(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_maximize_toggle(mock_client, mock_player):
+async def test_maximize_toggle(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test toggling maximized player mode."""
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
@@ -395,12 +401,16 @@ async def test_maximize_toggle(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_player_auto_advance(mock_client, mock_player):
+async def test_player_auto_advance(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test auto-advancing to the next track."""
-    prog = Program(title="P", id="p1", guides=[
-        Guide(id="g1", title="T1", assets=[Asset(url="u1", content_type="a", duration=10)]),
-        Guide(id="g2", title="T2", assets=[Asset(url="u2", content_type="a", duration=10)])
-    ])
+    prog = Program(
+        title="P",
+        id="p1",
+        guides=[
+            Guide(id="g1", title="T1", assets=[Asset(url="u1", content_type="a", duration=10)]),
+            Guide(id="g2", title="T2", assets=[Asset(url="u2", content_type="a", duration=10)]),
+        ],
+    )
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
         app._current_program = prog
@@ -416,12 +426,16 @@ async def test_player_auto_advance(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_prev_track(mock_client, mock_player):
+async def test_prev_track(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test skipping to the previous track."""
-    prog = Program(title="P", id="p1", guides=[
-        Guide(id="g1", title="T1", assets=[Asset(url="u1", content_type="a", duration=10)]),
-        Guide(id="g2", title="T2", assets=[Asset(url="u2", content_type="a", duration=10)])
-    ])
+    prog = Program(
+        title="P",
+        id="p1",
+        guides=[
+            Guide(id="g1", title="T1", assets=[Asset(url="u1", content_type="a", duration=10)]),
+            Guide(id="g2", title="T2", assets=[Asset(url="u2", content_type="a", duration=10)]),
+        ],
+    )
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
         app._current_program = prog
@@ -436,7 +450,7 @@ async def test_prev_track(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_favorites_error(mock_client):
+async def test_favorites_error(mock_client: MagicMock) -> None:
     """Test handling error when loading favorites."""
     mock_client.get_favorites.side_effect = Exception("API Error")
     app = BrowseApp(mock_client)
@@ -449,11 +463,11 @@ async def test_favorites_error(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_prev_track_out_of_range(mock_client, mock_player):
+async def test_prev_track_out_of_range(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test skipping to prev track when already at first track."""
-    prog = Program(title="P", id="p1", guides=[
-        Guide(id="g1", title="T1", assets=[Asset(url="u1", content_type="a", duration=10)])
-    ])
+    prog = Program(
+        title="P", id="p1", guides=[Guide(id="g1", title="T1", assets=[Asset(url="u1", content_type="a", duration=10)])]
+    )
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
         app._current_program = prog
@@ -468,7 +482,7 @@ async def test_prev_track_out_of_range(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_search_input_focus(mock_client):
+async def test_search_input_focus(mock_client: MagicMock) -> None:
     """Test focusing search input."""
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
@@ -478,7 +492,7 @@ async def test_search_input_focus(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_search_submission(mock_client):
+async def test_search_submission(mock_client: MagicMock) -> None:
     """Test submitting a search query."""
     res = SearchResponse(items=[SearchItem(title="Res", content_id="c1", item_type="audio")], total_item_number=1)
     mock_client.search.return_value = res
@@ -501,7 +515,7 @@ async def test_search_submission(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_stop_playback_action(mock_client, mock_player):
+async def test_stop_playback_action(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test stopping playback."""
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
@@ -516,7 +530,7 @@ async def test_stop_playback_action(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_search_no_results(mock_client):
+async def test_search_no_results(mock_client: MagicMock) -> None:
     """Test search with no results."""
     res = SearchResponse(items=[], total_item_number=0)
     mock_client.search.return_value = res
@@ -533,9 +547,10 @@ async def test_search_no_results(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_category_selection(mock_client):
+async def test_category_selection(mock_client: MagicMock) -> None:
     """Test selecting a different category from the sidebar."""
     from unittest.mock import AsyncMock
+
     mock_client.get_category_feed = AsyncMock(return_value=FeedResponse(title="M", packs=[]))
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
@@ -549,7 +564,7 @@ async def test_category_selection(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_unmount_cleanup(mock_client, mock_player):
+async def test_unmount_cleanup(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test cleanup on unmount."""
     app = BrowseApp(mock_client)
     app._player = mock_player
@@ -559,7 +574,7 @@ async def test_unmount_cleanup(mock_client, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_catalog_card_render_direct(mock_client):
+async def test_catalog_card_render_direct(mock_client: MagicMock) -> None:
     """Test CatalogCard render logic."""
     card = CatalogCard("T", "S", "E")
     # This hits _render_card and other internal bits
@@ -568,7 +583,7 @@ async def test_catalog_card_render_direct(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_player_progress_updates(mock_client, mock_player):
+async def test_player_progress_updates(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test separate progress update methods."""
     app = BrowseApp(mock_client)
     async with app.run_test():
@@ -576,16 +591,16 @@ async def test_player_progress_updates(mock_client, mock_player):
         # Test expanded
         app._show_player_expanded()
         app._update_expanded_progress(10, 100)
-        assert app.query_one("#expanded-progress").progress == 10.0
+        assert app.query_one("#expanded-progress", ProgressBar).progress == 10.0
 
         # Test maximized
         app._show_player_maximized()
         app._update_maximized_progress(20, 100)
-        assert app.query_one("#max-progress").progress == 20.0
+        assert app.query_one("#max-progress", ProgressBar).progress == 20.0
 
 
 @pytest.mark.asyncio
-async def test_player_ui_extended_updates(mock_client, mock_player):
+async def test_player_ui_extended_updates(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test UI updates in expanded and maximized modes."""
     app = BrowseApp(mock_client)
     async with app.run_test():
@@ -596,9 +611,9 @@ async def test_player_ui_extended_updates(mock_client, mock_player):
         # Expanded
         app._show_player_expanded()
         app._update_player_ui()
-        assert app.query_one("#expanded-progress").progress == 50.0
+        assert app.query_one("#expanded-progress", ProgressBar).progress == 50.0
 
         # Maximized
         app._show_player_maximized()
         app._update_player_ui()
-        assert app.query_one("#max-progress").progress == 50.0
+        assert app.query_one("#max-progress", ProgressBar).progress == 50.0

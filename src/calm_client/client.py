@@ -81,7 +81,7 @@ class CalmClient:
         elif credentials is not None:
             self._credentials = credentials
         else:
-            self._credentials = Credentials(access_token="")
+            self._credentials = Credentials(token="")
 
         self._auth: AuthStrategy = auth_for(self._credentials)
         self._client = client or httpx.AsyncClient()
@@ -307,6 +307,7 @@ class CalmClient:
             return []
 
         from .models import Pack
+
         pack = Pack(**data["pack"])
         return pack.items
 
