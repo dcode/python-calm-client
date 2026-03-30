@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from calm_client.player import CalmPlayer, _check_mpv, format_time
+from calm_client.cli.player import CalmPlayer, _check_mpv, format_time
 
 
 class TestCalmPlayer:

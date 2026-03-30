@@ -60,7 +60,7 @@ dev = [
 
 
 [project.scripts]
-calm = "calm_client.cli:app.meta"
+calm = "calm_client.cli.cli:app.meta"
 
 [[tool.uv.index]]
 default = true

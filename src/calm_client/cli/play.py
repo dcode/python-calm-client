@@ -13,7 +13,7 @@ from textual.widgets import Footer, Header, Label, ProgressBar
 from .player import CalmPlayer, format_time
 
 if TYPE_CHECKING:
-    from .models import Guide, Program
+    from calm_client.models import Guide, Program
 
 
 class PlayApp(App):

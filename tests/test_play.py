@@ -3,25 +3,25 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from calm_client.models import Guide, Program
-from calm_client.play import PlayApp
+from calm_client.models import CalmTrack, CalmAlbum
+from calm_client.cli.play import PlayApp
 
 
 class TestPlayApp:
     @pytest.fixture
     def mock_program(self) -> MagicMock:
-        guide = MagicMock(spec=Guide)
-        guide.title = "Test Guide"
+        guide = MagicMock(spec=CalmTrack)
+        guide.title = "Test CalmTrack"
         guide.stream_url = "http://example.com/stream.mp3"
 
-        program = MagicMock(spec=Program)
-        program.title = "Test Program"
+        program = MagicMock(spec=CalmAlbum)
+        program.title = "Test CalmAlbum"
         program.guides = [guide]
         return program
 
     @pytest.fixture
     def mock_player(self) -> Generator[MagicMock, None, None]:
-        with patch("calm_client.play.CalmPlayer") as mock:
+        with patch("calm_client.cli.play.CalmPlayer") as mock:
             player_instance = mock.return_value
             player_instance.duration = 100.0
             player_instance.position = 0.0
@@ -42,8 +42,8 @@ class TestPlayApp:
 
             # Check UI elements
             # Use render() to get the content, converted to string
-            assert str(app.query_one(".title").render()) == "Test Program"
-            assert str(app.query_one(".track").render()) == "Test Guide"
+            assert str(app.query_one(".title").render()) == "Test CalmAlbum"
+            assert str(app.query_one(".track").render()) == "Test CalmTrack"
 
             # Send 'q' to quit
             await pilot.press("q")
@@ -85,7 +85,7 @@ class TestPlayApp:
 
     @pytest.mark.asyncio
     async def test_player_init_error(self, mock_program: MagicMock) -> None:
-        with patch("calm_client.play.CalmPlayer", side_effect=RuntimeError("No mpv")):
+        with patch("calm_client.cli.play.CalmPlayer", side_effect=RuntimeError("No mpv")):
             app = PlayApp(mock_program, 0)
             async with app.run_test() as _:
                 # Should notify and exit

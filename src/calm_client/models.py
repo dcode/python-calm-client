@@ -2,186 +2,176 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from enum import StrEnum
+from typing import Any, Literal, Union
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
-class Asset(BaseModel):
-    """Represents a media asset (audio/video file)."""
+class MediaType(StrEnum):
+    """Media types aligned with Music Assistant and Calm concepts."""
 
+    TRACK = "track"
+    ALBUM = "album"
+    PLAYLIST = "playlist"
+    FOLDER = "folder"
+    FEED = "feed"
+    UNKNOWN = "unknown"
+
+
+class CalmImage(BaseModel):
+    """Image metadata returned by the Calm API."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str | None = None
+    url: str
+    width: int | None = None
+    height: int | None = None
+    content_type: str | None = None
+    dominant_colors: list[str] = Field(default_factory=list)
+
+
+class CalmAsset(BaseModel):
+    """Audio/Video asset attached to a track or guide."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str | None = None
     url: str
     content_type: str
-    duration: float
+    duration: float = 0.0
+    size: int | None = None
 
 
-class Guide(BaseModel):
-    """Represents a guide or track within a program."""
+class CalmBaseItem(BaseModel):
+    """Base representation of any item in the Calm catalog."""
 
-    id: str
-    title: str
-    assets: list[Asset] = Field(default_factory=list)
+    model_config = ConfigDict(populate_by_name=True)
+
+    # Calm uses 'content_id', 'id', 'guide_id', 'program_id', 'feed_id' etc.
+    id: str = Field(validation_alias=AliasChoices("content_id", "id", "guide_id", "program_id", "feed_id"))
+    title: str = Field(default="")
+    subtitle: str | None = None
+    item_type: str = Field(alias="type", default="unknown")
+    image: CalmImage | None = None
+    is_new: bool = False
+    is_unlocked: bool = True
+    search_category: str | None = None
+
+    @property
+    def media_type(self) -> MediaType:
+        """Heuristic to determine the media type for external consumers."""
+        if self.item_type == "guide":
+            return MediaType.TRACK
+        if self.item_type == "program":
+            return MediaType.ALBUM
+        if self.item_type in ("feed", "pack", "collection"):
+            return MediaType.FOLDER
+        return MediaType.UNKNOWN
+
+
+class CalmTrack(CalmBaseItem):
+    """A single playable piece of content (often a 'guide')."""
+
+    item_type: Literal["guide", "single"] = Field(alias="type", default="guide")
+    guide_id: str | None = None
+    program_id: str | None = None
+    narrator_name: str | None = None
+    duration: float = 0.0
+    assets: list[CalmAsset] = Field(default_factory=list)
+    content_type: str | None = None
 
     @property
     def stream_url(self) -> str | None:
-        """Return the URL of the first available asset (preferring audio/m4a or wav)."""
-        # Simple heuristic: take the first one.
-        # In production, we might want to filter by content_type.
+        """Return the best available stream URL."""
         if not self.assets:
             return None
+        for asset in self.assets:
+            if "m4a" in asset.url or asset.content_type == "audio/mp4":
+                return asset.url
         return self.assets[0].url
-
-
-class Program(BaseModel):
-    """Represents a full program or album."""
-
-    id: str
-    title: str
-    description: str | None = None
-    guides: list[Guide] = Field(default_factory=list)
-
-    @property
-    def first_stream_url(self) -> str | None:
-        """Return the stream URL of the first guide in the program."""
-        if not self.guides:
-            return None
-        return self.guides[0].stream_url
-
-
-class FeedItem(BaseModel):
-    """Represents an item in a content feed."""
-
-    id: str
-    title: str
-    subtitle: str | None = None
-    image_url: str | None = None
-    item_type: str = Field(alias="type")  # e.g., 'program', 'single'
-
-
-class Feed(BaseModel):
-    """Represents a category feed (Sleep, Meditate, etc.)."""
-
-    items: list[FeedItem]
-    next_page_url: str | None = None
-
-
-class ProgramResponse(BaseModel):
-    """API Response for a generic program request."""
-
-    program: Program
-
-
-class SearchItem(BaseModel):
-    """Represents an item in search results."""
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    program_id: str | None = None
-    title: str
-    subtitle: str | None = None
-    item_type: str = Field(default="unknown", alias="type")
-    search_category: str | None = None
-    content_type: str | None = None
-    content_id: str | None = None
-    narrator_name: str | None = None
-    is_new: bool = False
-    is_unlocked: bool = False
-
-
-class SearchResponse(BaseModel):
-    """API Response for search/v2 results.
-
-    The API returns ``{pack: {items: [...], total_item_number: N, ...}}``.
-    """
-
-    items: list[SearchItem] = Field(default_factory=list)
-    total_item_number: int = 0
-    has_more: bool = False
-
-
-# ------------------------------------------------------------------
-# Feed / Browse models
-# ------------------------------------------------------------------
-
-
-class ImageAsset(BaseModel):
-    """Image metadata returned inline on feed items."""
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    url: str = ""
-    width: int = 0
-    height: int = 0
-
-
-class PackItemAsset(BaseModel):
-    """An audio/video asset attached to a pack item."""
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    url: str = ""
-    content_type: str = ""
-    duration: float = 0.0
-
-
-class PackItem(BaseModel):
-    """A single content item inside a Pack (guide, program, etc.)."""
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    guide_id: str | None = None
-    program_id: str | None = None
-    title: str = ""
-    subtitle: str | None = None
-    item_type: str = Field(default="unknown", alias="type")
-    search_category: str | None = None
-    narrator_name: str | None = None
-    content_id: str | None = None
-    image: ImageAsset | None = None
-    assets: list[PackItemAsset] = Field(default_factory=list)
-    is_new: bool = False
-    is_unlocked: bool = False
-
-    @property
-    def display_id(self) -> str:
-        """Return the best available identifier for display."""
-        return self.program_id or self.guide_id or self.content_id or ""
 
     @property
     def duration_str(self) -> str:
         """Return a human-readable duration string."""
-        if not self.assets:
+        if self.duration <= 0:
             return ""
-        secs = self.assets[0].duration
-        if secs <= 0:
-            return ""
-        mins = int(secs // 60)
+        mins = int(self.duration // 60)
         if mins >= 60:
             return f"{mins // 60}h {mins % 60}m"
         return f"{mins}m"
 
 
-class Pack(BaseModel):
-    """A named group of items within a category feed."""
+class CalmAlbum(CalmBaseItem):
+    """A collection of tracks (often a 'program')."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    item_type: Literal["program"] = Field(alias="type", default="program")
+    program_id: str | None = None
+    description: str | None = None
+    narrator_name: str | None = None
+    content_type: str | None = None
+    guides: list[CalmTrack] = Field(default_factory=list)
 
-    title: str = ""
-    pack_class: str = ""
-    display_type: str | None = None
-    items: list[PackItem] = Field(default_factory=list)
-    has_more: bool = False
+    @property
+    def media_type(self) -> MediaType:
+        """Heuristic for programs."""
+        if self.content_type in ("Playlist", "Music"):
+            return MediaType.PLAYLIST
+        if len(self.guides) == 1 and self.content_type not in ("Course", "Series"):
+            return MediaType.TRACK
+        return MediaType.ALBUM
+
+
+class CalmFolder(CalmBaseItem):
+    """A container for other items (often a 'pack' or 'feed')."""
+
+    item_type: Literal["feed", "pack", "unknown"] = Field(alias="type", default="unknown")
+    pack_class: str | None = None
+    items: list[Union[CalmTrack, CalmAlbum, CalmFolder, CalmBaseItem]] = Field(default_factory=list)
     total_item_number: int = 0
-    is_faveable: bool = False
+    has_more: bool = False
+    next_page_url: str | None = None
+
+    @property
+    def media_type(self) -> MediaType:
+        return MediaType.FOLDER
 
 
-class FeedResponse(BaseModel):
-    """Full category feed as returned by ``packs/feeds/<category>``."""
+class CalmFeed(BaseModel):
+    """The root structure of a category or home feed."""
 
     model_config = ConfigDict(populate_by_name=True)
 
-    id: str = ""
-    title: str = ""
+    id: str | None = None
+    title: str | None = None
     subtitle: str | None = None
-    packs: list[Pack] = Field(default_factory=list)
+    packs: list[CalmFolder] = Field(default_factory=list)
 
 
-Track = Guide
+class ProgramResponse(BaseModel):
+    """API Response for a program request."""
+
+    program: CalmAlbum
+
+
+class SearchResponse(BaseModel):
+    """API Response for search results."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    items: list[Union[CalmTrack, CalmAlbum, CalmBaseItem]] = Field(default_factory=list)
+    total_item_number: int = 0
+    has_more: bool = False
+
+
+def parse_item(data: dict[str, Any]) -> CalmTrack | CalmAlbum | CalmFolder | CalmBaseItem:
+    """Polymorphic parser for Calm items."""
+    item_type = data.get("type")
+    if item_type in ("guide", "single"):
+        return CalmTrack.model_validate(data)
+    if item_type == "program":
+        return CalmAlbum.model_validate(data)
+    if item_type in ("feed", "pack"):
+        return CalmFolder.model_validate(data)
+    return CalmBaseItem.model_validate(data)

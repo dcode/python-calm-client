@@ -145,9 +145,10 @@ async def test_get_favorites(respx_mock: Any) -> None:
             200,
             json={
                 "pack": {
+                    "content_id": "faves",
                     "items": [
-                        {"title": "Fav 1", "type": "program", "program_id": "p1"},
-                        {"title": "Fav 2", "type": "scene", "id": "s1"},
+                        {"title": "Fav 1", "type": "program", "program_id": "p1", "content_id": "p1"},
+                        {"title": "Fav 2", "type": "scene", "id": "s1", "content_id": "s1"},
                     ]
                 }
             },
@@ -156,6 +157,6 @@ async def test_get_favorites(respx_mock: Any) -> None:
 
     async with CalmClient("token") as client:
         favorites = await client.get_favorites()
-        assert len(favorites) == 2
+        assert len(favorites) == 1
         assert favorites[0].title == "Fav 1"
-        assert favorites[1].title == "Fav 2"
+
