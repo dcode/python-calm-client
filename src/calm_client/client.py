@@ -10,7 +10,17 @@ from calm_client.auth import AuthStrategy, auth_for
 from calm_client.credentials import Credentials
 from calm_client.exceptions import CalmAPIError, CalmAuthError
 from calm_client.logging import logger as logger
-from calm_client.models import Feed, FeedResponse, PackItem, Program, ProgramResponse, SearchResponse
+from calm_client.models import (
+    Feed,
+    FeedResponse,
+    Guide,
+    GuideSummary,
+    Pack,
+    PackItem,
+    Program,
+    ProgramResponse,
+    SearchResponse,
+)
 
 DEFAULT_CATEGORIES: list[tuple[str, str, str]] = [
     # (api_slug, emoji, display_name)
@@ -306,10 +316,73 @@ class CalmClient:
         if "pack" not in data:
             return []
 
-        from .models import Pack
-
         pack = Pack(**data["pack"])
         return pack.items
+
+    async def get_pack(self, pack_class: str) -> Pack:
+        """Fetch a pack (e.g. a row of a feed) with all of its items."""
+        logger.info("get_pack", pack_class=pack_class)
+        data = await self._request("GET", f"packs/class/{pack_class}")
+        return Pack.model_validate(data.get("pack", data))
+
+    async def get_guide_summary(self, guide_id: str) -> GuideSummary:
+        """Fetch a guide's summary: the program it belongs to and its lock flags."""
+        logger.info("get_guide_summary", guide_id=guide_id)
+        data = await self._request("GET", f"programs/guides/{guide_id}")
+        return GuideSummary.model_validate(data)
+
+    async def get_guide(self, guide_id: str) -> tuple[Guide, Program]:
+        """Fetch a guide with its assets, together with the program it belongs to.
+
+        Program detail responses carry no lock flags, so the guide summary's flags are
+        copied onto the returned program; check playability with
+        ``is_available(guide, program)``.
+
+        Raises:
+            CalmAPIError: If the guide is not part of the program Calm names for it.
+        """
+        summary = await self.get_guide_summary(guide_id)
+        program = await self.get_program(summary.program_id or summary.id)
+        for flag in ("is_unlocked", "is_free"):
+            if flag in summary.model_fields_set:
+                setattr(program, flag, getattr(summary, flag))
+        for guide in program.guides:
+            if guide.id == guide_id:
+                return guide, program
+        raise CalmAPIError(f"Guide {guide_id} not found in program {program.id}")
+
+    async def browse(self, path: str = "") -> list[PackItem]:
+        """List the entries at a browse path, as a tree any integration can walk.
+
+        - ``""``: the categories in ``DEFAULT_CATEGORIES``, as feed entries
+        - ``"feed/<feed_id>"``: the feed's packs that hold guides or programs, then its tags
+        - ``"pack/<pack_class>"``: the pack's items
+
+        Guides and programs come back as they are; sub-feeds and sub-packs have a
+        ``path`` to browse next. Check each entry's ``media_type``.
+
+        Raises:
+            ValueError: If the path is not one of the forms above.
+        """
+        kind, _, ident = path.partition("/")
+        if not path:
+            return [PackItem(type="feed", feed_id=slug, title=name) for slug, _, name in DEFAULT_CATEGORIES]
+        if kind == "feed" and ident:
+            feed = await self.get_category_feed(ident)
+            entries = [
+                PackItem(type="pack", pack_class=pack.pack_class, title=pack.title)
+                for pack in feed.packs
+                if pack.pack_class and pack.title and pack.has_playable_items
+            ]
+            for tag in feed.tags:
+                if tag.title and tag.feed_id:
+                    entries.append(PackItem(type="feed", feed_id=tag.feed_id, title=tag.title))
+                elif tag.title and tag.pack_class:
+                    entries.append(PackItem(type="pack", pack_class=tag.pack_class, title=tag.title))
+            return entries
+        if kind == "pack" and ident:
+            return (await self.get_pack(ident)).items
+        raise ValueError(f"Not a Calm browse path: {path!r}")
 
     async def close(self) -> None:
         """Close the underlying http client."""

@@ -4,7 +4,7 @@ import httpx
 import pytest
 from httpx import Response
 
-from calm_client import CalmAPIError, CalmAuthError, CalmClient, Credentials
+from calm_client import CalmAPIError, CalmAuthError, CalmClient, Credentials, MediaType, is_available
 
 
 @pytest.mark.asyncio
@@ -328,3 +328,123 @@ async def test_aclose_closes_http_client() -> None:
     client = CalmClient("token")
     await client.aclose()
     assert client._client.is_closed
+
+
+API = "https://www.calm.com/webapi/authproxy"
+
+
+@pytest.mark.asyncio
+async def test_get_pack(respx_mock: Any) -> None:
+    respx_mock.get(f"{API}/packs/class/sleep-stories").mock(
+        return_value=Response(
+            200, json={"pack": {"title": "Sleep Stories", "items": [{"type": "guide", "guide_id": "g"}]}}
+        )
+    )
+    async with CalmClient("token") as client:
+        pack = await client.get_pack("sleep-stories")
+    assert pack.title == "Sleep Stories"
+    assert pack.items[0].guide_id == "g"
+
+
+def _mock_guide(respx_mock: Any, summary: dict[str, Any]) -> None:
+    respx_mock.get(f"{API}/programs/guides/g2").mock(return_value=Response(200, json=summary))
+    respx_mock.get(f"{API}/content/programs/p1").mock(
+        return_value=Response(
+            200,
+            json={
+                "program": {
+                    "id": "p1",
+                    "title": "Program",
+                    "guides": [
+                        {"id": "g1", "title": "One", "assets": []},
+                        {"id": "g2", "title": "Two", "assets": [{"url": "u", "content_type": "audio/mp4"}]},
+                    ],
+                }
+            },
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_guide_copies_lock_flags(respx_mock: Any) -> None:
+    _mock_guide(respx_mock, {"id": "g2", "program_id": "p1", "unlocked": False, "free": True})
+    async with CalmClient("token") as client:
+        guide, program = await client.get_guide("g2")
+    assert guide.title == "Two"
+    assert guide.stream_url == "u"
+    assert program.is_free
+    assert not program.is_unlocked
+    assert is_available(guide, program)
+
+
+@pytest.mark.asyncio
+async def test_get_guide_locked(respx_mock: Any) -> None:
+    _mock_guide(respx_mock, {"id": "g2", "program_id": "p1", "unlocked": False})
+    async with CalmClient("token") as client:
+        guide, program = await client.get_guide("g2")
+    assert not is_available(guide, program)
+
+
+@pytest.mark.asyncio
+async def test_get_guide_not_in_program(respx_mock: Any) -> None:
+    _mock_guide(respx_mock, {"id": "g2", "program_id": "p1"})
+    respx_mock.get(f"{API}/programs/guides/g9").mock(return_value=Response(200, json={"id": "g9", "program_id": "p1"}))
+    async with CalmClient("token") as client:
+        with pytest.raises(CalmAPIError, match="g9"):
+            await client.get_guide("g9")
+
+
+@pytest.mark.asyncio
+async def test_browse_root() -> None:
+    async with CalmClient("token") as client:
+        entries = await client.browse()
+    assert entries[0].path == "feed/home"
+    assert all(entry.media_type is MediaType.FOLDER for entry in entries)
+
+
+@pytest.mark.asyncio
+async def test_browse_feed(respx_mock: Any) -> None:
+    respx_mock.get(f"{API}/packs/feeds/sleep").mock(
+        return_value=Response(
+            200,
+            json={
+                "feed": {
+                    "packs": [
+                        {"title": "Stories", "pack_class": "stories", "items": [{"type": "guide", "guide_id": "g"}]},
+                        {"title": "Promo", "pack_class": "promo", "items": [{"type": "promo"}]},
+                        {"title": "", "pack_class": "untitled", "items": [{"type": "guide", "guide_id": "g"}]},
+                    ],
+                    "tags": [
+                        {"title": "Kids", "feed_id": "kids-sleep"},
+                        {"title": "Rain", "pack_class": "rain"},
+                        {"title": "Broken"},
+                    ],
+                }
+            },
+        )
+    )
+    async with CalmClient("token") as client:
+        entries = await client.browse("feed/sleep")
+    assert [(e.title, e.path) for e in entries] == [
+        ("Stories", "pack/stories"),
+        ("Kids", "feed/kids-sleep"),
+        ("Rain", "pack/rain"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_browse_pack(respx_mock: Any) -> None:
+    respx_mock.get(f"{API}/packs/class/stories").mock(
+        return_value=Response(200, json={"pack": {"items": [{"type": "program", "program_id": "p"}]}})
+    )
+    async with CalmClient("token") as client:
+        entries = await client.browse("pack/stories")
+    assert entries[0].media_type is MediaType.ALBUM
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["feed", "pack/", "bogus/x"])
+async def test_browse_bad_path(path: str) -> None:
+    async with CalmClient("token") as client:
+        with pytest.raises(ValueError, match="browse path"):
+            await client.browse(path)
