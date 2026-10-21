@@ -78,6 +78,18 @@ def save_credentials(creds: Credentials) -> None:
     CONFIG_FILE.write_text(json.dumps(creds.model_dump(by_alias=True), indent=2))
 
 
+def _save_if_refreshed(client: CalmClient, original_token: str) -> bool:
+    """Persist the client's credentials if a request refreshed them.
+
+    The client refreshes its ``Credentials`` object in place, so the token captured
+    before the requests is the only reliable way to tell that a refresh happened.
+    """
+    if client.credentials.token == original_token:
+        return False
+    save_credentials(client.credentials)
+    return True
+
+
 async def _check_auth(client: CalmClient) -> bool:
     """Check if current token is valid by making a lightweight API request.
 
@@ -176,14 +188,14 @@ def whoami() -> None:
 
     console.print(f"[dim]{creds!r}[/dim]")
 
+    original_token = creds.token
+
     async def check() -> None:
         try:
             async with CalmClient(creds) as client:
                 if await _check_auth(client):
                     console.print("[green]Logged in and authenticated.[/green]")
-                    # Persist refreshed credentials if auto-refresh occurred
-                    if client.credentials.token != creds.token:
-                        save_credentials(client.credentials)
+                    if _save_if_refreshed(client, original_token):
                         console.print("[dim]Token was refreshed and saved.[/dim]")
                 else:
                     console.print("[red]Token is invalid or expired. Please run 'calm login' again.[/red]")
@@ -209,11 +221,14 @@ def search(query: Annotated[str, cyclopts.Parameter(name="query")]) -> None:
         console.print("[yellow]Not logged in. Run 'calm login' first.[/yellow]")
         return
 
+    original_token = creds.token
+
     async def perform_search() -> None:
         try:
             async with CalmClient(creds) as client:
                 with console.status(f"Searching for '{query}'..."):
                     results = await client.search(query)
+                _save_if_refreshed(client, original_token)
 
                 if not results.items:
                     console.print("[yellow]No results found.[/yellow]")
@@ -237,10 +252,6 @@ def search(query: Annotated[str, cyclopts.Parameter(name="query")]) -> None:
 
                 console.print(table)
 
-                # Persist refreshed credentials if auto-refresh occurred
-                if client.credentials.token != creds.token:
-                    save_credentials(client.credentials)
-
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
 
@@ -262,12 +273,14 @@ def play(program_id: str, *, guide: int = 0) -> None:
         console.print("[yellow]Not logged in. Run 'calm login' first.[/yellow]")
         return
 
+    original_token = creds.token
+
     async def fetch_program() -> Program:
         client = CalmClient(creds)
         try:
-            if client.credentials.token != creds.token:
-                save_credentials(client.credentials)
-            return await client.get_program(program_id)
+            program = await client.get_program(program_id)
+            _save_if_refreshed(client, original_token)
+            return program
         finally:
             await client.close()
 

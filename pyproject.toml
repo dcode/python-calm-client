@@ -161,7 +161,9 @@ python = ["3.12", "3.14"]
 addopts = ["--cov=src", "--deepassert", "--import-mode=importlib"]
 
 [tool.coverage]
-report.exclude_also = ["if TYPE_CHECKING:"]
+report.exclude_also = ["if TYPE_CHECKING:", 'if __name__ == "__main__":']
+# total floor; scripts/check_coverage.py enforces the per-file floor (85%) in CI
+report.fail_under   = 90
 report.omit         = ["tests/*", "src/calm_client/__*__.py"]
 run.branch          = true
 run.omit            = ["tests/*", "src/calm_client/__*__.py"]

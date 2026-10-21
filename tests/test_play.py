@@ -91,3 +91,54 @@ class TestPlayApp:
                 # Should notify and exit
                 pass
             # Should exit cleanly
+
+    @pytest.mark.asyncio
+    async def test_progress_updates_timer_and_bar(self, mock_program: MagicMock, mock_player: MagicMock) -> None:
+        from textual.widgets import Label, ProgressBar
+
+        app = PlayApp(mock_program, 0)
+        async with app.run_test():
+            mock_player.position = 65.0
+            mock_player.duration = 600.0
+            app._update_progress()
+            assert str(app.query_one("#timer", Label).render()) == "1:05 / 10:00"
+            bar = app.query_one("#progress", ProgressBar)
+            assert bar.total == 600.0
+            assert bar.progress == 65.0
+
+            # unknown duration falls back to a 100-step bar
+            mock_player.duration = 0.0
+            app._update_progress()
+            assert bar.total == 100
+
+    @pytest.mark.asyncio
+    async def test_pause_notifies_state(self, mock_program: MagicMock, mock_player: MagicMock) -> None:
+        app = PlayApp(mock_program, 0)
+        async with app.run_test():
+            with patch.object(app, "notify") as notify:
+                mock_player.is_paused = True
+                app.action_toggle_pause()
+                notify.assert_called_with("Paused")
+                mock_player.is_paused = False
+                app.action_toggle_pause()
+                notify.assert_called_with("Playing")
+
+    @pytest.mark.asyncio
+    async def test_actions_without_player_are_noops(self, mock_program: MagicMock) -> None:
+        app = PlayApp(mock_program, 0)
+        # actions and progress updates before playback started must not fail
+        app._update_progress()
+        app.action_toggle_pause()
+        app.action_seek_forward()
+        app.action_seek_backward()
+
+
+def test_run_play_runs_app() -> None:
+    from calm_client.play import run_play
+
+    program = MagicMock(spec=Program)
+    program.guides = [MagicMock(spec=Guide)]
+    with patch("calm_client.play.PlayApp") as app_cls:
+        run_play(program, 0)
+    app_cls.assert_called_once_with(program, 0)
+    app_cls.return_value.run.assert_called_once_with()
