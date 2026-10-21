@@ -1,10 +1,19 @@
-"""Logging configuration for the Calm client."""
+"""Logging configuration for the Calm client.
+
+As a library, calm-client logs through the standard ``logging`` module under the
+``calm_client`` logger, so it is silent unless the host application configures logging.
+The CLI calls :func:`configure_logging` to get pretty console output and a JSON log file.
+
+Either way, credentials never reach a log: request headers, passwords and tokens are
+redacted by :func:`redact_sensitive`.
+"""
 
 from __future__ import annotations
 
 import logging
 import sys
 import typing
+from collections.abc import Mapping, MutableMapping
 from logging.handlers import RotatingFileHandler
 
 import structlog
@@ -12,11 +21,46 @@ from structlog.dev import ConsoleRenderer
 from structlog.processors import JSONRenderer
 from structlog.stdlib import ProcessorFormatter
 
-_logger: typing.Any = None
+LOGGER_NAME = "calm_client"
+REDACTED = "<redacted>"
+
+# header names (lower-case) and payload keys that carry credentials
+_SENSITIVE_HEADERS = frozenset({"authorization", "cookie", "x-session-token"})
+_SENSITIVE_KEYS = frozenset(
+    {"password", "access_token", "refresh_token", "id_token", "token", "session_token", "client_secret"}
+)
+
+
+def _redact_value(value: typing.Any) -> typing.Any:
+    """Return a copy of a payload with credential fields masked."""
+    if isinstance(value, Mapping):
+        return {
+            key: REDACTED if str(key).lower() in _SENSITIVE_KEYS else _redact_value(item) for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    if isinstance(value, str) and any(f'"{key}"' in value for key in _SENSITIVE_KEYS):
+        # a raw (possibly truncated) JSON body that mentions a credential field
+        return REDACTED
+    return value
+
+
+def redact_sensitive(
+    _logger: typing.Any, _method: str, event_dict: MutableMapping[str, typing.Any]
+) -> MutableMapping[str, typing.Any]:
+    """Structlog processor that masks credentials in ``headers`` and ``body`` fields."""
+    headers = event_dict.get("headers")
+    if isinstance(headers, Mapping):
+        event_dict["headers"] = {
+            name: REDACTED if str(name).lower() in _SENSITIVE_HEADERS else value for name, value in headers.items()
+        }
+    if "body" in event_dict:
+        event_dict["body"] = _redact_value(event_dict["body"])
+    return event_dict
 
 
 def configure_logging(*, level: int = logging.WARNING) -> None:
-    """Configure structlog with the given log level.
+    """Configure structlog with the given log level (used by the CLI).
 
     Sets up:
     1. A RotatingFileHandler writing JSON logs to 'app.log' (10MB, 5 backups).
@@ -75,6 +119,7 @@ def configure_logging(*, level: int = logging.WARNING) -> None:
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
+        redact_sensitive,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
@@ -91,11 +136,36 @@ def configure_logging(*, level: int = logging.WARNING) -> None:
     )
 
 
-def __getattr__(name: str) -> typing.Any:
-    """Implement lazy loading for logger."""
-    if name == "logger":
-        global _logger
-        if _logger is None:
-            _logger = structlog.get_logger("calm_client")
-        return _logger
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+_library_logger: typing.Any = None
+
+
+def _resolve_logger() -> typing.Any:
+    """Return the structlog logger when the CLI configured structlog, else a stdlib-backed one."""
+    global _library_logger
+    if structlog.is_configured():
+        return structlog.get_logger(LOGGER_NAME)
+    if _library_logger is None:
+        _library_logger = structlog.wrap_logger(
+            logging.getLogger(LOGGER_NAME),
+            processors=[
+                structlog.stdlib.filter_by_level,
+                redact_sensitive,
+                structlog.processors.KeyValueRenderer(key_order=["event"]),
+            ],
+            wrapper_class=structlog.stdlib.BoundLogger,
+        )
+    return _library_logger
+
+
+class _LazyLogger:
+    """Logger proxy that picks its backend on every call.
+
+    Modules bind ``logger`` at import time, which can be before the CLI configures
+    structlog; resolving per call keeps both library and CLI use correct.
+    """
+
+    def __getattr__(self, name: str) -> typing.Any:
+        return getattr(_resolve_logger(), name)
+
+
+logger = _LazyLogger()

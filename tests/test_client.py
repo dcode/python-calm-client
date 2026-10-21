@@ -159,3 +159,19 @@ async def test_get_favorites(respx_mock: Any) -> None:
         assert len(favorites) == 2
         assert favorites[0].title == "Fav 1"
         assert favorites[1].title == "Fav 2"
+
+
+@pytest.mark.asyncio
+async def test_get_feed_with_packs(respx_mock: Any) -> None:
+    respx_mock.get("https://www.calm.com/webapi/authproxy/packs/feeds/sleep").mock(
+        return_value=Response(
+            200,
+            json={"feed": {"id": "sleep", "packs": [{"title": "Featured", "pack_class": "featured", "items": []}]}},
+        )
+    )
+
+    async with CalmClient("token") as client:
+        feed = await client.get_feed("sleep")
+
+    assert feed.items == []
+    assert [p.title for p in feed.packs] == ["Featured"]
