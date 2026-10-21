@@ -155,7 +155,7 @@ features = ["player"]
 dependency-groups = ["dev"]
 
 [[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.12", "3.14"]
+python = ["3.12", "3.13", "3.14"]
 
 [tool.pytest.ini_options]
 addopts = ["--cov=src", "--deepassert", "--import-mode=importlib"]
