@@ -1,6 +1,6 @@
-"""Module entrypoint for cli."""
+"""Module entrypoint for cli (``python -m calm_client``)."""
 
-from calm_client.cli import app
+from calm_client._entry import main
 
 if __name__ == "__main__":
-    app.meta()
+    main()

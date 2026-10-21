@@ -18,31 +18,36 @@ if TYPE_CHECKING:
 
 from calm_client.logging import logger
 
+_MPV_SYSTEM_HINT = (
+    "Install mpv (it provides libmpv) with:\n"
+    "  Ubuntu/Debian: sudo apt install mpv libmpv-dev\n"
+    "  macOS:         brew install mpv\n"
+    "  Arch:          sudo pacman -S mpv"
+)
+
 
 def _check_mpv() -> None:
-    """Raise a helpful error if ``mpv`` is not installed on the system."""
+    """Raise a helpful error if audio playback dependencies are missing."""
     try:
         import mpv as _mpv  # type: ignore[import-untyped,unused-ignore] # noqa: F401
     except ImportError:
         msg = (
-            "The 'python-mpv' package is required for audio playback.\\n"
-            "Install it with:\\n"
-            "  pip install 'calm-client[player]'\\n"
-            "  # or: pipx inject calm-client python-mpv"
+            "Audio playback needs the 'player' extra.\n"
+            "Install it with:\n"
+            "  pipx install --force 'calm-client[player]'\n"
+            "  # in a checkout: uv sync (the dev group includes it)"
         )
         logger.error("mpv_python_missing")
         raise RuntimeError(msg) from None
+    except OSError:
+        # python-mpv is installed, but it could not load the libmpv shared library
+        logger.error("libmpv_missing")
+        msg = f"Audio playback needs the mpv library (libmpv), which was not found.\n{_MPV_SYSTEM_HINT}"
+        raise RuntimeError(msg) from None
 
     if shutil.which("mpv") is None:
-        msg = (
-            "mpv is required for audio playback but was not found.\n"
-            "Install it with:\n"
-            "  Ubuntu/Debian: sudo apt install mpv\n"
-            "  macOS:         brew install mpv\n"
-            "  Arch:          sudo pacman -S mpv"
-        )
         logger.error("mpv_binary_missing")
-        raise RuntimeError(msg)
+        raise RuntimeError(f"mpv is required for audio playback but was not found.\n{_MPV_SYSTEM_HINT}")
 
 
 class CalmPlayer:
