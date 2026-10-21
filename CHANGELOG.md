@@ -34,6 +34,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `calm browse` showed at most about 10 items per collection: feeds only embed a
+  preview of each pack. Opening a pack now loads all of its items (e.g. 263 Sleep
+  Stories in Fiction instead of 10), and cards show "10+ items" until then.
 - `Guide.stream_url` prefers compressed audio over wav and no longer picks a video
   asset when audio is available.
 

@@ -302,7 +302,11 @@ class SearchResponse(BaseModel):
 
 
 class Pack(BaseModel):
-    """A named group of items within a category feed."""
+    """A named group of items within a category feed.
+
+    A pack embedded in a feed holds only a preview of its items (about 10); when
+    ``has_more`` is set, fetch the rest with ``CalmClient.get_pack(pack_class)``.
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 

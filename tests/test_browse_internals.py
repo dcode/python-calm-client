@@ -51,6 +51,7 @@ def client() -> MagicMock:
     mock.get_favorites = AsyncMock(return_value=[])
     mock.search = AsyncMock()
     mock.get_program = AsyncMock()
+    mock.get_pack = AsyncMock(return_value=Pack())
     return mock
 
 
@@ -403,3 +404,71 @@ async def test_album_art(client: MagicMock, respx_mock: Any) -> None:
             app._fetch_player_art("http://img/missing.png")
             await app.workers.wait_for_complete()
         assert other._art_renderable is None
+
+
+def _track_titles(app: BrowseApp) -> list[str]:
+    return [str(item.query_one(Label).render()) for item in app.query_one("#track-list", ListView).query("ListItem")]
+
+
+@pytest.mark.asyncio
+async def test_pack_loads_beyond_feed_preview(client: MagicMock, player: MagicMock) -> None:
+    preview = Pack(title="Fiction", pack_class="fiction", has_more=True, items=[PackItem(title="Story 1")])
+    full = Pack(pack_class="fiction", items=[PackItem(title=f"Story {i}") for i in range(1, 13)])
+    complete = Pack(title="Naps", pack_class="naps", items=[PackItem(title="Nap")])
+    client.get_category_feed.return_value = FeedResponse(title="Sleep", packs=[preview, complete])
+    client.get_pack.return_value = full
+
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        with patch.object(app, "_fetch_header_art"), patch.object(app, "_fetch_card_art"):
+            app._load_category("sleep", "Sleep")
+            await app.workers.wait_for_complete()
+            subtitles = [card.card_subtitle for card in app.query(CatalogCard)]
+            assert subtitles == ["1+ items", "1 items"]
+
+            # the preview shows at once, then the full pack replaces it
+            app._drill_into_pack(preview)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            client.get_pack.assert_awaited_once_with("fiction")
+            assert len(_track_titles(app)) == 12
+            assert app._current_pack is full
+            assert full.title == "Fiction"
+
+            # reopening uses the cached full pack; a complete pack is never fetched
+            await pilot.press("escape")
+            app._drill_into_pack(preview)
+            app._drill_into_pack(complete)
+            await app.workers.wait_for_complete()
+            client.get_pack.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pack_full_load_failures(client: MagicMock, player: MagicMock) -> None:
+    preview = Pack(title="Fiction", pack_class="fiction", has_more=True, items=[PackItem(title="Story 1")])
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        with patch.object(app, "_fetch_header_art"), patch.object(app, "notify") as notify:
+            # an error keeps the preview and says so
+            client.get_pack.side_effect = RuntimeError("offline")
+            app._drill_into_pack(preview)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "offline" in notify.call_args.args[0]
+            assert app._current_pack is preview
+
+            # an empty response keeps the preview too
+            client.get_pack.side_effect = None
+            client.get_pack.return_value = Pack()
+            app._drill_into_pack(preview)
+            await app.workers.wait_for_complete()
+            assert app._current_pack is preview
+            assert "fiction" not in app._pack_cache
+
+            # a pack that's no longer open is cached but not shown
+            client.get_pack.return_value = Pack(items=[PackItem(title="A"), PackItem(title="B")])
+            app._drill_into_pack(preview)
+            app._current_pack = None
+            await app.workers.wait_for_complete()
+            assert "fiction" in app._pack_cache
+            assert app._current_pack is None

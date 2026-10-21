@@ -56,6 +56,7 @@ CalmClient(credentials: Credentials | str | None = None)
     all of its packs and tags.
 - `get_program(program_id: str) -> Program`: Get details for a program.
 - `get_pack(pack_class: str) -> Pack`: Get a pack (a row of a feed) with all of its items.
+    Packs embedded in a feed only hold a preview (about 10 items); use this for the rest.
 - `get_guide(guide_id: str) -> tuple[Guide, Program]`: Get a guide with its audio
     assets, plus its program carrying the account's lock flags.
 - `get_guide_summary(guide_id: str) -> GuideSummary`: Get a guide's program id and
