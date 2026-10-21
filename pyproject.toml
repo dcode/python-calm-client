@@ -16,16 +16,8 @@ classifiers = [
   "Topic :: Multimedia :: Sound/Audio :: Players",
   "Typing :: Typed",
 ]
-dependencies = [
-  "cyclopts",
-  "httpx",
-  "orjson",
-  "platformdirs",
-  "pydantic",
-  "rich",
-  "structlog",
-  "textual>=7.5.0",
-]
+# Library only: the CLI/TUI and audio playback are optional extras.
+dependencies = ["httpx", "pydantic", "structlog"]
 
 description     = "Async Python client for Calm.com internal API"
 dynamic         = ["version"]
@@ -41,11 +33,16 @@ Issues        = "https://github.com/dcode/python-calm-client/issues"
 Source        = "https://github.com/dcode/python-calm-client"
 
 [project.optional-dependencies]
-player = ["Pillow>=10.0", "python-mpv>=1.0.8", "rich-pixels>=3.0.0"]
+# `calm` command line and TUI browser
+cli = ["cyclopts", "platformdirs", "rich", "textual>=7.5.0"]
+# everything in `cli`, plus audio playback (needs the mpv/libmpv system package)
+player = ["calm-client[cli]", "Pillow>=10.0", "python-mpv>=1.0.8", "rich-pixels>=3.0.0"]
 
 
 [dependency-groups]
 dev = [
+  # the project itself with every extra, so `uv run calm` can play audio in a checkout
+  "calm-client[player]",
   "hatch>=1.15.1",
   "mypy>=1.19.1",
   "pre-commit>=4.5.1",
@@ -60,7 +57,7 @@ dev = [
 
 
 [project.scripts]
-calm = "calm_client.cli:app.meta"
+calm = "calm_client._entry:main"
 
 [[tool.uv.index]]
 default = true
@@ -122,6 +119,7 @@ section-order = [
 packages = ["src/calm_client"]
 
 [tool.hatch.envs.default]
+features = ["player"]
 dependency-groups = ["dev"]
 env-vars = { "UV_DEFAULT_INDEX" = "https://pypi.org/simple/" }
 installer = "uv"
@@ -132,6 +130,7 @@ installer = "uv"
 ################################################################################
 
 [tool.hatch.envs.typing]
+features = ["player"]
 dependency-groups = ["dev"]
 
 [tool.hatch.envs.typing.scripts]
@@ -152,6 +151,7 @@ warn_unused_configs   = true
 ################################################################################
 
 [tool.hatch.envs.hatch-test]
+features = ["player"]
 dependency-groups = ["dev"]
 
 [[tool.hatch.envs.hatch-test.matrix]]

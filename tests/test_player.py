@@ -34,6 +34,23 @@ class TestCalmPlayer:
         with patch("shutil.which", return_value=None), pytest.raises(RuntimeError, match="mpv is required"):
             _check_mpv()
 
+    def test_check_python_mpv_missing(self) -> None:
+        # a None entry in sys.modules makes `import mpv` raise ImportError
+        with patch.dict(sys.modules, {"mpv": None}), pytest.raises(RuntimeError, match=r"'player' extra"):
+            _check_mpv()
+
+    def test_check_libmpv_missing(self) -> None:
+        real_import = __import__
+
+        def failing_import(name: str, *args: object, **kwargs: object) -> object:
+            if name == "mpv":
+                raise OSError("Cannot find libmpv in the usual places.")
+            return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+        sys.modules.pop("mpv", None)
+        with patch("builtins.__import__", side_effect=failing_import), pytest.raises(RuntimeError, match="libmpv"):
+            _check_mpv()
+
     def test_init(self) -> None:
         player = self._make_player()
 

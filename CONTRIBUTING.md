@@ -15,8 +15,9 @@ Thanks for your interest! This guide covers local development setup.
 git clone https://github.com/dcode/python-calm-client.git
 cd python-calm-client
 
-# Install dependencies (creates a virtualenv automatically)
-uv sync --all-extras --all-groups
+# Install dependencies (creates a virtualenv automatically). The dev group
+# includes the project with all extras, so `uv run calm` can play audio.
+uv sync
 ```
 
 ## Development Workflow

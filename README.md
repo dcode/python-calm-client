@@ -24,11 +24,11 @@ Use [pipx](https://pipx.pypa.io/) to install the CLI in an isolated environment
 with zero hassle — no virtualenv management needed:
 
 ```bash
-# Core CLI (login, search, whoami)
-pipx install calm-client
-
-# Full CLI with audio playback (play, browse)
+# Full CLI with audio playback (play, browse) — needs mpv, see Requirements
 pipx install 'calm-client[player]'
+
+# CLI and TUI browser without audio playback (login, search, whoami, browse)
+pipx install 'calm-client[cli]'
 ```
 
 ### Library
@@ -39,15 +39,26 @@ If you want to use `calm-client` as a Python library in your own project:
 pip install calm-client
 ```
 
+The plain package installs only the API client and its few dependencies (`httpx`,
+`pydantic`, `structlog`). The `cli` and `player` extras add the terminal UI and audio
+playback.
+
+| Install | You get |
+|---|---|
+| `calm-client` | Async API client library |
+| `calm-client[cli]` | + `calm` command and TUI browser |
+| `calm-client[player]` | + audio playback in `calm play` / `calm browse` |
+
 ## Requirements
 
 - **Python 3.12+** - for modern typing, async, and f-strings
 
-- **mpv** — Required for `calm play` and `calm browse` audio features
+- **mpv** — Required for `calm play` and `calm browse` audio features (the `player`
+  extra loads mpv's `libmpv` library)
 
     ```bash
     # Ubuntu/Debian
-    sudo apt install mpv
+    sudo apt install mpv libmpv-dev
 
     # macOS
     brew install mpv

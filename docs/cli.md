@@ -5,7 +5,8 @@ interacting with Calm.com directly from your terminal.
 
 ## Installation
 
-The CLI is installed automatically when you install the package.
+The CLI is an optional extra: `calm-client[cli]` for the command line and TUI
+browser, or `calm-client[player]` to also play audio (needs mpv installed).
 
 **Recommended** — install with [pipx](https://pipx.pypa.io/) for an isolated
 environment:
@@ -19,6 +20,9 @@ Or with pip:
 ```bash
 pip install 'calm-client[player]'
 ```
+
+Upgrading from 0.1.x, where the CLI was always installed: reinstall with
+`pipx install --force 'calm-client[player]'`.
 
 ## Global Options
 
