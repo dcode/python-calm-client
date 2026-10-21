@@ -50,3 +50,37 @@ async def test_library_logs_via_stdlib_without_secrets(
     assert "secret-token" not in text
     # nothing is printed by the library itself
     assert capsys.readouterr().out == ""
+
+
+@pytest.fixture
+def restore_logging(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Any:
+    """Run in a temp dir (configure_logging writes app.log there) and undo global logging config."""
+    import structlog
+
+    monkeypatch.chdir(tmp_path)
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    yield tmp_path
+    for handler in root.handlers:
+        handler.close()
+    root.handlers, root.level = handlers, level
+    structlog.reset_defaults()
+
+
+def test_redacts_lists_of_payloads() -> None:
+    event = {"event": "x", "body": [{"password": "pw"}, {"ok": 1}]}
+    assert redact_sensitive(None, "debug", event)["body"] == [{"password": REDACTED}, {"ok": 1}]
+
+
+def test_configure_logging_writes_redacted_json_log(restore_logging: Any) -> None:
+    from calm_client.logging import configure_logging, logger
+
+    configure_logging(level=logging.INFO)
+    logger.info("http_request", headers={"Cookie": "calm-user-token=secret"}, body={"password": "pw"})
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    log_text = (restore_logging / "app.log").read_text()
+    assert "http_request" in log_text
+    assert "secret" not in log_text
+    assert '"pw"' not in log_text

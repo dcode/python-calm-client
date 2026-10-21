@@ -1,6 +1,6 @@
 import sys
 from collections.abc import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -112,6 +112,84 @@ class TestCalmPlayer:
 
         # Check event registration
         self.mock_player_instance.event_callback.assert_called_with("end-file")
+
+    def test_end_file_event_runs_on_end_callback(self) -> None:
+        player = self._make_player()
+        # @player.event_callback("end-file") registered the handler on the decorator mock
+        handler = self.mock_player_instance.event_callback.return_value.call_args.args[0]
+
+        handler(MagicMock())  # no callback registered yet: nothing happens
+        on_end = MagicMock()
+        player.on_end(on_end)
+        handler(MagicMock())
+        on_end.assert_called_once_with()
+
+    def test_position_and_duration_tracking(self) -> None:
+        player = self._make_player()
+        progress = MagicMock()
+        player.on_progress(progress)
+
+        player._on_time_pos("time-pos", 5.0)  # duration unknown yet: no progress callback
+        player._on_time_pos("time-pos", None)
+        player._on_duration("duration", None)
+        progress.assert_not_called()
+        assert player.position == 5.0
+        assert player.duration == 0.0
+
+        player._on_duration("duration", 60.0)
+        assert player.duration == 60.0
+
+    def test_state_errors_report_not_playing(self) -> None:
+        player = self._make_player()
+        # mpv raises once the player is torn down
+        type(self.mock_player_instance).pause = PropertyMock(side_effect=RuntimeError("gone"))
+        try:
+            assert player.is_playing is False
+            assert player.is_paused is False
+        finally:
+            del type(self.mock_player_instance).pause
+
+    def test_volume_is_clamped(self) -> None:
+        player = self._make_player()
+        player.set_volume(150)
+        assert self.mock_player_instance.volume == 100
+        player.set_volume(-5)
+        assert self.mock_player_instance.volume == 0
+
+    def test_stop_clears_callbacks_and_ignores_errors(self) -> None:
+        player = self._make_player()
+        player.on_end(MagicMock())
+        player.on_progress(MagicMock())
+        self.mock_player_instance.stop.side_effect = RuntimeError("mpv gone")
+        player.stop()
+        assert player._on_end is None
+        assert player._on_progress is None
+
+    def test_wait_for_playback(self) -> None:
+        player = self._make_player()
+        player.wait_for_playback()
+        self.mock_player_instance.wait_for_playback.assert_called_once_with()
+
+    def test_controls_are_noops_after_shutdown(self) -> None:
+        player = self._make_player()
+        player.shutdown()
+        self.mock_player_instance.reset_mock()
+
+        player.play("u")
+        player.pause()
+        player.stop()
+        player.seek(5)
+        player.set_volume(10)
+        player.wait_for_playback()
+        player.shutdown()  # second shutdown is harmless
+
+        assert not self.mock_player_instance.method_calls
+
+    def test_terminate_errors_are_suppressed(self) -> None:
+        broken = MagicMock()
+        broken.terminate.side_effect = RuntimeError("already dead")
+        CalmPlayer._terminate_player(broken)
+        broken.terminate.assert_called_once_with()
 
     def test_shutdown(self) -> None:
         player = self._make_player()

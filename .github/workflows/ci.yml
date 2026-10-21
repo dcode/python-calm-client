@@ -13,11 +13,11 @@ concurrency:
 jobs:
   lint:
     name: Lint & Type Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
           python-version: "3.12"
@@ -34,24 +34,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
         python-version: ["3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - name: Sync deps (frozen)
         run: uv sync --frozen --all-extras --all-groups
-      - name: Run tests
-        run: uv run hatch test -py ${{ matrix.python-version }}
+      - name: Run tests (fails below 90% total coverage)
+        run: uv run hatch test --parallel -py ${{ matrix.python-version }}
+      - name: Check per-file coverage (85% minimum)
+        run: |
+          uv run coverage json -q -o coverage.json
+          uv run python scripts/check_coverage.py coverage.json --min-file 85
   test:
     name: Tests
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test-matrix]
     steps:
       - name: Check Test Matrix

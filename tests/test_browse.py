@@ -36,6 +36,11 @@ def mock_client() -> MagicMock:
 def mock_player() -> Generator[MagicMock, None, None]:
     with patch("calm_client.player.CalmPlayer") as mock:
         player_instance = mock.return_value
+        # real values: the now-playing bar renders these as numbers and booleans
+        player_instance.position = 0.0
+        player_instance.duration = 0.0
+        player_instance.is_paused = False
+        player_instance.is_playing = False
         player_instance.stop = MagicMock()
         player_instance.shutdown = MagicMock()
         player_instance.play_track = AsyncMock()

@@ -1,0 +1,405 @@
+"""Tests for browse TUI behaviour not reached by the key-driven tests in test_browse.py.
+
+Each test drives one app session through several related code paths, since starting a
+Textual app is the expensive part.
+"""
+
+import io
+from collections.abc import Generator
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from httpx import Response
+from PIL import Image
+from textual.widgets import Label, ListView, ProgressBar, Static
+
+from calm_client import browse
+from calm_client.browse import BrowseApp, CatalogCard, NowPlayingBar, TrackItem, _resize_image, run_browse
+from calm_client.client import CalmClient
+from calm_client.models import Asset, FeedResponse, Guide, ImageAsset, Pack, PackItem, Program
+
+
+def _png() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), (255, 0, 0)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _program(*guides: Guide) -> Program:
+    return Program(id="p1", title="Rain", guides=list(guides))
+
+
+def _guide(guide_id: str, url: str | None = "u", duration: float = 125) -> Guide:
+    assets = [Asset(url=url, content_type="audio/mp4", duration=duration)] if url else []
+    return Guide(id=guide_id, title=f"Track {guide_id}", assets=assets)
+
+
+ITEM = PackItem(
+    title="Rain Story",
+    program_id="p1",
+    narrator_name="Narrator",
+    image=ImageAsset(url="http://img/item.png"),
+)
+
+
+@pytest.fixture
+def client() -> MagicMock:
+    mock = MagicMock(spec=CalmClient)
+    mock.aclose = AsyncMock()
+    mock.get_category_feed = AsyncMock()
+    mock.get_favorites = AsyncMock(return_value=[])
+    mock.search = AsyncMock()
+    mock.get_program = AsyncMock()
+    return mock
+
+
+@pytest.fixture
+def player() -> Generator[MagicMock, None, None]:
+    with patch("calm_client.player.CalmPlayer") as cls:
+        instance = cls.return_value
+        instance.position = 30.0
+        instance.duration = 120.0
+        instance.is_paused = False
+        instance.is_playing = True
+        yield instance
+
+
+# ---------------------------------------------------------------------------
+# Helpers that need no running app
+# ---------------------------------------------------------------------------
+
+
+def test_resize_image() -> None:
+    assert _resize_image(_png(), 2, 2) is not None
+    assert _resize_image(b"not an image") is None
+    with patch.object(browse, "_ART_AVAILABLE", False):
+        assert _resize_image(_png()) is None
+
+
+def test_now_playing_bar_format() -> None:
+    assert NowPlayingBar._fmt(0) == "0:00"
+    assert NowPlayingBar._fmt(-3) == "0:00"
+    assert NowPlayingBar._fmt(125.9) == "2:05"
+
+
+def test_run_browse_runs_app(client: MagicMock) -> None:
+    with patch("calm_client.browse.BrowseApp") as app_cls:
+        run_browse(client)
+    app_cls.assert_called_once_with(client)
+    app_cls.return_value.run.assert_called_once_with()
+
+
+# ---------------------------------------------------------------------------
+# Widgets
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_widgets_render(client: MagicMock) -> None:
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        bar = app.query_one("#now-playing-bar", NowPlayingBar)
+        bar.track_title, bar.program_title, bar.narrator = "Track", "Program", "Narrator"
+        bar.position, bar.duration, bar.paused = 30.0, 120.0, True
+        rendered = bar.render()
+        assert "⏸" in rendered
+        assert "Program" in rendered and "Narrator" in rendered
+        assert "0:30 / 2:00" in rendered
+
+        # cards: art replaces the emoji, enter and click select, other keys don't
+        card = CatalogCard(title="A card title that is long", subtitle="sub", emoji="🌙", item=ITEM)
+        await app.query_one("#catalog-grid").mount(card)
+        await pilot.pause()
+        card.set_art("ART")
+        assert card._art_renderable == "ART"
+        with patch.object(card, "post_message") as post:
+            card.on_key(MagicMock(key="x"))
+            post.assert_not_called()
+            card.on_key(MagicMock(key="enter"))
+            card.on_click()
+            assert post.call_count == 2
+
+        # art arriving after the card left the DOM is ignored
+        await card.remove()
+        card._render_card()
+
+        # set_art on a card that isn't mounted only stores the renderable
+        detached = CatalogCard(title="t", subtitle="", emoji="x")
+        detached.set_art("ART")
+        assert detached._art_renderable == "ART"
+
+        # track entries show duration when known
+        with_duration = TrackItem(_guide("g1", duration=125), 0, is_current=True)
+        without_assets = TrackItem(_guide("g2", url=None), 1)
+        await app.query_one("#track-list", ListView).extend([with_duration, without_assets])
+        await pilot.pause()
+        assert "2:05" in str(with_duration.query_one(Label).render())
+        assert "▶" in str(with_duration.query_one(Label).render())
+
+
+# ---------------------------------------------------------------------------
+# Playback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_play_track_paths(client: MagicMock, player: MagicMock) -> None:
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        # nothing loaded: track actions are no-ops
+        app._play_track(0)
+        app.action_next_track()
+        app.action_prev_track()
+        app.action_toggle_pause()
+        app._on_track_end()
+        assert app._player is None
+
+        app._current_program = _program(_guide("g1"), _guide("g2", url=None))
+        app._current_item = ITEM
+        with patch.object(app, "notify") as notify:
+            app._play_track(5)  # out of range
+            assert app._player is None
+
+            app._play_track(1)  # no stream URL
+            notify.assert_called_with("No stream URL available", severity="error")
+
+            with patch("calm_client.player.CalmPlayer", side_effect=RuntimeError("no mpv")):
+                app._play_track(0)
+            notify.assert_called_with("no mpv", severity="error")
+
+            app._play_track(0)
+        await pilot.pause()
+        player.play.assert_called_with("u")
+        bar = app.query_one("#now-playing-bar", NowPlayingBar)
+        assert bar.narrator == "Narrator"
+        assert app._player_mode == "bar"
+
+        # pause updates the bar
+        player.is_paused = True
+        app.action_toggle_pause()
+        assert bar.paused is True
+
+        # progress updates reach the bar and the visible views
+        app._update_player_ui()
+        assert bar.position == 30.0
+        app._show_player_expanded()
+        app._update_player_ui()
+        assert app.query_one("#expanded-progress", ProgressBar).total == 120.0
+        assert "0:30 / 2:00" in str(app.query_one("#expanded-timer", Label).render())
+        app._show_player_maximized()
+        player.duration = 0.0
+        app._update_player_ui()
+        assert app.query_one("#max-progress", ProgressBar).total == 100
+
+        # last track ended: playback stops
+        app._current_track_index = 1
+        with patch.object(app, "call_from_thread", side_effect=lambda f, *a: f(*a)):
+            app._on_track_end()
+        assert app._player is None
+        assert app._player_mode == "hidden"
+
+        # stopping again without a player is harmless; so are UI updates
+        app._stop_playback()
+        app._update_player_ui()
+        app._update_expanded_content()
+        app._update_maximized_content()
+        app._refresh_track_lists()
+
+
+@pytest.mark.asyncio
+async def test_player_modes_and_back(client: MagicMock, player: MagicMock) -> None:
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        app._current_program = _program(_guide("g1"), _guide("g2"))
+        app._current_item = ITEM
+        app._play_track(0)
+        await pilot.pause()
+
+        app.on_now_playing_bar_click()
+        assert app._player_mode == "expanded"
+        assert "Narrator" in str(app.query_one("#expanded-narrator", Label).render())
+        app.on_now_playing_bar_click()  # only expands from the bar
+        assert app._player_mode == "expanded"
+
+        app.action_maximize_player()
+        assert app._player_mode == "maximized"
+        assert "Narrator" in str(app.query_one("#max-narrator", Label).render())
+        app.action_maximize_player()
+        assert app._player_mode == "expanded"
+        app.action_maximize_player()
+
+        await app.action_back()
+        assert app._player_mode == "expanded"
+        await app.action_back()
+        assert app._player_mode == "bar"
+
+        # quitting stops and shuts the player down, then closes the client
+        await app.action_quit()
+    player.shutdown.assert_called()
+    client.aclose.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_play_selected_item_paths(client: MagicMock, player: MagicMock) -> None:
+    app = BrowseApp(client)
+    async with app.run_test():
+        with patch.object(app, "notify") as notify, patch.object(app, "_fetch_player_art") as fetch_art:
+
+            async def play(item: PackItem | None) -> None:
+                app._current_item = item
+                app._play_selected_item()
+                await app.workers.wait_for_complete()
+
+            await play(None)
+            notify.assert_called_with("No item selected", severity="warning")
+
+            await play(PackItem(title="No id"))
+            notify.assert_called_with("Item has no ID", severity="error")
+
+            client.get_program.side_effect = RuntimeError("offline")
+            await play(ITEM)
+            notify.assert_called_with("Failed: offline", severity="error")
+
+            client.get_program.side_effect = None
+            client.get_program.return_value = _program()
+            await play(ITEM)
+            notify.assert_called_with("No audio tracks found", severity="warning")
+
+            client.get_program.return_value = _program(_guide("g1"))
+            await play(ITEM)
+            fetch_art.assert_called_once_with("http://img/item.png")
+            assert app._current_track_index == 0
+            player.play.assert_called_with("u")
+
+
+# ---------------------------------------------------------------------------
+# Navigation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_navigation_paths(client: MagicMock, player: MagicMock) -> None:
+    pack = Pack(
+        title="Sleep Stories",
+        pack_class="stories",
+        items=[PackItem(title="No art"), ITEM],
+    )
+    client.get_category_feed.return_value = FeedResponse(title="Sleep", packs=[pack])
+    client.get_favorites.return_value = [ITEM]
+
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        with (
+            patch.object(app, "_fetch_card_art") as card_art,
+            patch.object(app, "_fetch_header_art") as header_art,
+            patch.object(app, "_play_selected_item") as play_item,
+        ):
+            # a category loads once, then comes from the cache
+            app._load_category("sleep", "Sleep")
+            await app.workers.wait_for_complete()
+            app._load_category("sleep", "Sleep")
+            await app.workers.wait_for_complete()
+            client.get_category_feed.assert_awaited_once_with("sleep")
+            card_art.assert_called_with(app.query(CatalogCard).first(), "http://img/item.png")
+
+            # favorites fetch art for items that have it
+            app._load_all_favorites()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert any(call.args[1] == "http://img/item.png" for call in card_art.call_args_list)
+
+            # play on a focused pack card drills in; on an item card it plays
+            pack_card = CatalogCard(title="p", subtitle="", emoji="x", pack=pack)
+            item_card = CatalogCard(title="i", subtitle="", emoji="x", item=ITEM)
+            await app.query_one("#catalog-grid").mount(pack_card, item_card)
+            await pilot.pause()
+            item_card.focus()
+            await pilot.pause()
+            app.action_play_item()
+            play_item.assert_called_once()
+
+            pack_card.focus()
+            await pilot.pause()
+            app.action_play_item()
+            assert app._view == "tracks"
+            assert "Narrator" in str(app.query_one("#track-narrator", Label).render())
+            header_art.assert_called_once()
+
+            # in the track list, play the highlighted entry
+            await pilot.pause()
+            track_list = app.query_one("#track-list", ListView)
+            track_list.focus()
+            track_list.index = 1
+            await pilot.pause()
+            app.action_play_item()
+            assert app._current_item == ITEM
+            assert play_item.call_count == 2
+
+            # back from the track list returns to the grid
+            await app.action_back()
+            assert app._view == "grid"
+
+            # selecting a track entry in a list plays it
+            app._current_program = _program(_guide("g1"))
+            with patch.object(app, "_play_track") as play_track:
+                event = MagicMock(spec=ListView.Selected)
+                event.item = TrackItem(_guide("g1"), 0)
+                await app.on_list_view_selected(event)
+                play_track.assert_called_once_with(0)
+
+            # empty searches do nothing; the legacy search entry shows the input
+            app._perform_search("   ")
+            await app.workers.wait_for_complete()
+            client.search.assert_not_awaited()
+            app._show_search()
+            assert app.query_one("#search-input").display
+
+
+@pytest.mark.asyncio
+async def test_category_load_error(client: MagicMock) -> None:
+    client.get_category_feed.side_effect = RuntimeError("offline")
+    app = BrowseApp(client)
+    async with app.run_test():
+        app._load_category("music", "Music")
+        await app.workers.wait_for_complete()
+        assert "Error: offline" in str(app.query_one("#catalog-title", Static).render())
+
+
+# ---------------------------------------------------------------------------
+# Album art
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_album_art(client: MagicMock, respx_mock: Any) -> None:
+    route = respx_mock.get("http://img/ok.png").mock(return_value=Response(200, content=_png()))
+    respx_mock.get("http://img/missing.png").mock(return_value=Response(404))
+
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        # fetched once, then served from the cache
+        assert await app._get_art("http://img/ok.png", 4, 4) is not None
+        assert await app._get_art("http://img/ok.png", 4, 4) is not None
+        assert route.call_count == 1
+        assert await app._get_art("http://img/missing.png") is None
+
+        card = CatalogCard(title="t", subtitle="", emoji="x")
+        await app.query_one("#catalog-grid").mount(card)
+        header = app.query_one("#track-art", Static)
+        with patch.object(app, "_get_art", AsyncMock(return_value="PIXELS")):
+            app._fetch_card_art(card, "http://img/ok.png")
+            app._fetch_header_art(header, "http://img/ok.png")
+            app._fetch_player_art("http://img/ok.png")
+            await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert card._art_renderable == "PIXELS"
+
+        # no art: nothing is updated
+        with patch.object(app, "_get_art", AsyncMock(return_value=None)):
+            other = CatalogCard(title="t", subtitle="", emoji="x")
+            app._fetch_card_art(other, "http://img/missing.png")
+            app._fetch_header_art(header, "http://img/missing.png")
+            app._fetch_player_art("http://img/missing.png")
+            await app.workers.wait_for_complete()
+        assert other._art_renderable is None
