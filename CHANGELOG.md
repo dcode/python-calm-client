@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.2.0] — Unreleased
 
+### Added
+
+- `CalmClient.browse()` walks the catalog as a tree of feeds, packs, programs and
+  guides, so integrations don't have to interpret feeds themselves.
+- `CalmClient.get_pack()`, `get_guide()` (a guide with its program and lock flags) and
+  `get_guide_summary()`.
+- `MediaType` and `PackItem.media_type` / `PackItem.path` classify catalog entries;
+  `is_available()` tells whether the account can play them.
+- `Guide.audio_asset` / `PackItem.audio_asset` pick the preferred audio format.
+- Models keep more of Calm's data: lock flags in both spellings (`is_unlocked`/`unlocked`,
+  `is_free`/`free`), program narrators and cover images, guide positions and narrators,
+  and feed tags.
+
 ### Changed
 
 - **Breaking:** the CLI/TUI dependencies (`cyclopts`, `rich`, `textual`,
@@ -20,6 +33,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   redacted from all log output.
 
 ### Fixed
+
+- `Guide.stream_url` prefers compressed audio over wav and no longer picks a video
+  asset when audio is available.
 
 - A missing libmpv is reported with install instructions instead of an `OSError`
   traceback; the python-mpv hint no longer prints a literal `\n`.

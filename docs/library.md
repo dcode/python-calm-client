@@ -50,19 +50,64 @@ CalmClient(credentials: Credentials | str | None = None)
 
 - `login(email, password) -> Credentials`: Authenticate and return credentials.
 - `search(query: str) -> SearchResponse`: Search the catalog.
-- `get_feed(category_id: str) -> FeedResponse`: Get a category feed
+- `get_feed(category_id: str) -> Feed`: Get a category feed
     (e.g., "sleep", "meditate").
+- `get_category_feed(category_id: str) -> FeedResponse`: Get a category feed with
+    all of its packs and tags.
 - `get_program(program_id: str) -> Program`: Get details for a program.
+- `get_pack(pack_class: str) -> Pack`: Get a pack (a row of a feed) with all of its items.
+- `get_guide(guide_id: str) -> tuple[Guide, Program]`: Get a guide with its audio
+    assets, plus its program carrying the account's lock flags.
+- `get_guide_summary(guide_id: str) -> GuideSummary`: Get a guide's program id and
+    lock flags without the program details.
 - `get_favorites() -> list[PackItem]`: Get user's favorite items.
+- `browse(path: str = "") -> list[PackItem]`: Walk the catalog as a tree (see below).
+
+### Browsing
+
+`browse()` gives integrations (media servers, voice assistants, …) one tree to walk
+instead of interpreting feeds themselves:
+
+| Path | Entries |
+|------|---------|
+| `""` | the categories in `DEFAULT_CATEGORIES`, as feeds |
+| `"feed/<feed_id>"` | the feed's packs that hold guides or programs, then its tags |
+| `"pack/<pack_class>"` | the pack's items |
+
+Each entry has a `media_type`: `TRACK` (a guide), `ALBUM` (a program), `FOLDER` (a
+sub-feed or sub-pack; browse its `path` next) or `UNKNOWN` (promos and other entries
+without audio, which you will usually skip).
+
+```python
+from calm_client import MediaType, is_available
+
+for entry in await client.browse("feed/sleep"):
+    print(entry.title, entry.path)
+
+for entry in await client.browse("pack/sleep-stories"):
+    if entry.media_type is MediaType.TRACK and entry.guide_id:
+        guide, program = await client.get_guide(entry.guide_id)
+        if is_available(guide, program):
+            print(guide.title, guide.stream_url)
+```
 
 ### Models
 
 The library uses Pydantic models for type safety:
 
-- `Program`: Represents a collection (album/playlist).
-- `Guide`: Represents a single track/episode within a program.
-- `Feed`: A list of catalog items.
-- `SearchItem`: A result from a search query.
+- `Program`: Represents a collection (album/playlist), with its narrator, cover
+    image (`image_url`) and guides (`sorted_guides` in play order).
+- `Guide`: Represents a single track/episode within a program. `audio_asset` and
+    `stream_url` prefer compressed audio (m4a, then mp3, ogg, wav) and skip video.
+- `Feed` / `FeedResponse`: A category feed: its packs and its tags (links to sub-feeds
+    and packs).
+- `Pack` / `PackItem`: A row of a feed and its entries.
+- `SearchItem`: A result from a search query (the same shape as a `PackItem`).
+
+Programs, guides and items carry Calm's lock flags as `is_unlocked` and `is_free`,
+whichever spelling the response used. Use `is_available(guide, program)` to decide
+whether the account can play something. Program details have no lock flags of their
+own, so content with no flags at all counts as available.
 
 ## Error Handling
 

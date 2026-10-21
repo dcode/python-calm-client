@@ -4,7 +4,22 @@ from .auth import AuthStrategy, BearerAuth, CookieAuth
 from .client import CalmClient
 from .credentials import Credentials
 from .exceptions import CalmAPIError, CalmAuthError
-from .models import Feed, Program, ProgramResponse, SearchItem, SearchResponse, Track
+from .models import (
+    Feed,
+    FeedResponse,
+    FeedTag,
+    Guide,
+    GuideSummary,
+    MediaType,
+    Pack,
+    PackItem,
+    Program,
+    ProgramResponse,
+    SearchItem,
+    SearchResponse,
+    Track,
+    is_available,
+)
 
 __all__ = [
     "AuthStrategy",
@@ -15,9 +30,17 @@ __all__ = [
     "CookieAuth",
     "Credentials",
     "Feed",
+    "FeedResponse",
+    "FeedTag",
+    "Guide",
+    "GuideSummary",
+    "MediaType",
+    "Pack",
+    "PackItem",
     "Program",
     "ProgramResponse",
     "SearchItem",
     "SearchResponse",
     "Track",
+    "is_available",
 ]
