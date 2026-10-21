@@ -479,6 +479,8 @@ class BrowseApp(App):
         super().__init__()
         self._client = client
         self._feed_cache: dict[str, FeedResponse] = {}
+        # full packs by pack_class; feeds only embed a preview (about 10 items) of each pack
+        self._pack_cache: dict[str, Pack] = {}
         self._current_category: str = ""
         self._current_pack: Pack | None = None
         self._current_item: PackItem | None = None
@@ -797,9 +799,11 @@ class BrowseApp(App):
                             img_url = pi.image.url
                             break
 
+                count = len(pack.items) if pack.items else pack.total_item_number
                 card = CatalogCard(
                     title=pack.title,
-                    subtitle=f"{len(pack.items) if pack.items else pack.total_item_number} items",
+                    # the feed only previews the pack; the full count is known once it's opened
+                    subtitle=f"{count}+ items" if pack.has_more and pack.items else f"{count} items",
                     emoji=emoji,
                     pack=pack,
                 )
@@ -822,7 +826,38 @@ class BrowseApp(App):
     # ------------------------------------------------------------------
 
     def _drill_into_pack(self, pack: Pack) -> None:
-        """Switch to track listing view for a pack."""
+        """Switch to track listing view for a pack.
+
+        Feeds embed only a preview of each pack, so the preview is shown straight away
+        and the full pack is loaded in the background.
+        """
+        full = self._pack_cache.get(pack.pack_class)
+        self._show_pack(full or pack)
+        if full is None and pack.has_more and pack.pack_class:
+            self._load_full_pack(pack)
+
+    def _append_pack_item(self, track_list: ListView, item: ListItem, pack: Pack) -> None:
+        """Append a deferred track row, unless another pack has been shown since."""
+        if self._current_pack is pack:
+            track_list.append(item)
+
+    @work(exclusive=True, group="pack-load")
+    async def _load_full_pack(self, preview: Pack) -> None:
+        """Fetch every item of a pack and redisplay it if it's still open."""
+        try:
+            full = await self._client.get_pack(preview.pack_class)
+        except Exception as e:
+            self.notify(f"Could not load all of {preview.title}: {e}", severity="warning")
+            return
+        if not full.items:
+            return
+        full.title = full.title or preview.title
+        self._pack_cache[preview.pack_class] = full
+        if self._view == "tracks" and self._current_pack is preview:
+            self._show_pack(full)
+
+    def _show_pack(self, pack: Pack) -> None:
+        """Display a pack's items in the track listing view."""
         self._current_pack = pack
         self._switch_to_tracks()
 
@@ -861,7 +896,7 @@ class BrowseApp(App):
                 narrator_str = f" · {item.narrator_name}" if item.narrator_name else ""
                 li = ListItem(Label(f"  {i + 1}. {item.title}{narrator_str}  {dur}"))
                 li.item = item  # type: ignore[attr-defined]
-                self.call_after_refresh(lambda tl=track_list, it=li: tl.append(it))
+                self.call_after_refresh(self._append_pack_item, track_list, li, pack)
 
         track_list.focus()
 
