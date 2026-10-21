@@ -57,9 +57,14 @@ class FeedItem(BaseModel):
 
 
 class Feed(BaseModel):
-    """Represents a category feed (Sleep, Meditate, etc.)."""
+    """Represents a category feed (Sleep, Meditate, etc.).
 
-    items: list[FeedItem]
+    Current feeds group their content in ``packs``; older responses listed ``items``
+    directly. Both are accepted.
+    """
+
+    items: list[FeedItem] = Field(default_factory=list)
+    packs: list[Pack] = Field(default_factory=list)
     next_page_url: str | None = None
 
 
@@ -183,5 +188,7 @@ class FeedResponse(BaseModel):
     subtitle: str | None = None
     packs: list[Pack] = Field(default_factory=list)
 
+
+Feed.model_rebuild()
 
 Track = Guide

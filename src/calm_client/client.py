@@ -197,7 +197,7 @@ class CalmClient:
 
             if token := data.get("token"):
                 credentials.session_token = token
-                logger.info("session_token_retrieved", token_preview=token[:10] + "...")
+                logger.info("session_token_retrieved")
             else:
                 logger.warning("v2_me_missing_token", response_keys=list(data.keys()))
 
