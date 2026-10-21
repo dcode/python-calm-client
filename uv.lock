@@ -269,6 +269,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-deepassert" },
+    { name = "pytest-github-actions-annotate-failures" },
     { name = "respx" },
     { name = "ruff" },
 ]
@@ -303,6 +304,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.2.0" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-deepassert" },
+    { name = "pytest-github-actions-annotate-failures", specifier = ">=0.4.2" },
     { name = "respx", specifier = ">=0.22.0" },
     { name = "ruff", specifier = ">=0.15.1" },
 ]
@@ -1445,6 +1447,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fa/a8/940489286a68b92165b91451eb399b0612fec86169178ea1a59013df6e58/pytest_deepassert-0.3.0.tar.gz", hash = "sha256:60541aa433526e8045c5b420badbf9c578eb2e1741249dd0e8ef41c8608fc07b", size = 12030, upload-time = "2025-11-04T18:50:38.024Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f2/27/720c351077da024f6072b60664110742f267855d8443c9b6ba87aa2e01b2/pytest_deepassert-0.3.0-py3-none-any.whl", hash = "sha256:e9b37229923e35d6db32053d5a10e50c3b6f80f44868f02523e21e4152103ed5", size = 10465, upload-time = "2025-11-04T18:50:37.161Z" },
+]
+
+[[package]]
+name = "pytest-github-actions-annotate-failures"
+version = "0.4.2"
+source = { registry = "https://pypi.org/simple/" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/00/a0/bdb91581b03c41016c78e16b8ec36c34d8508206fcb30f1951c9cdff2e97/pytest_github_actions_annotate_failures-0.4.2.tar.gz", hash = "sha256:5dd18304512361788bc7b5c5c805db853f03f4950c6be09b088de6bab8e2e6c9", size = 12158, upload-time = "2026-06-19T15:59:17.445Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/09/c44e658f3a27c588c2017d858c8b0fa962612af9b74326beabbf010c839c/pytest_github_actions_annotate_failures-0.4.2-py3-none-any.whl", hash = "sha256:02911cd3b55f235328a334f8ca6037a89944398b8e8b028c82de97111eff4071", size = 6151, upload-time = "2026-06-19T15:59:16.486Z" },
 ]
 
 [[package]]
