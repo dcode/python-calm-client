@@ -30,6 +30,7 @@ def mock_client() -> MagicMock:
     client.search = AsyncMock()
     client.get_program = AsyncMock()
     client.get_pack = AsyncMock(return_value=Pack())
+    client.get_playlists = AsyncMock(return_value=[])
     return client
 
 

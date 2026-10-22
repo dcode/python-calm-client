@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `CalmClient.get_playlists()` returns the user's playlists ("My Collections");
+  `add_fave()` / `remove_fave()` favorite or unfavorite a guide, program, feed, pack
+  or content item. The browse TUI's My Collections card now opens your playlists
+  (contents hydrated with titles), alongside Favorites on the Home screen.
 - `CalmClient.browse()` walks the catalog as a tree of feeds, packs, programs and
   guides, so integrations don't have to interpret feeds themselves.
 - `CalmClient.get_pack()`, `get_guide()` (a guide with its program and lock flags) and

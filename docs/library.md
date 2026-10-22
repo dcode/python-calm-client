@@ -62,6 +62,10 @@ CalmClient(credentials: Credentials | str | None = None)
 - `get_guide_summary(guide_id: str) -> GuideSummary`: Get a guide's program id and
     lock flags without the program details.
 - `get_favorites() -> list[PackItem]`: Get user's favorite items.
+- `get_playlists() -> list[Playlist]`: Get the user's playlists ("My Collections").
+- `add_fave(*, guide_id=.. | program_id=.. | feed_id=.. | pack_class=.. | content_id=..)`
+    and `remove_fave(...)`: favorite or unfavorite one item. Guides use the
+    `programs/guides/<id>/faves` endpoint; everything else uses `/faves`.
 - `browse(path: str = "") -> list[PackItem]`: Walk the catalog as a tree (see below).
 
 ### Browsing
@@ -104,6 +108,8 @@ The library uses Pydantic models for type safety:
     and packs).
 - `Pack` / `PackItem`: A row of a feed and its entries.
 - `SearchItem`: A result from a search query (the same shape as a `PackItem`).
+- `Playlist` / `PlaylistItem`: A user playlist and its entries. Items hold only
+    `guide_id`/`program_id`; resolve them with `get_guide`. `image_url` gives the cover.
 
 Programs, guides and items carry Calm's lock flags as `is_unlocked` and `is_free`,
 whichever spelling the response used. Use `is_available(guide, program)` to decide
