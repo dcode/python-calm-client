@@ -806,6 +806,7 @@ class BrowseApp(App):
             # Packs the apps fill in themselves arrive empty; of those, only favorites
             # has an endpoint the client can load (recently played and collections don't)
             packs = [p for p in feed.packs if p.items or p.pack_class == FAVES_PACK]
+            packs.sort(key=lambda p: p.pack_class != FAVES_PACK)  # favorites first, as in the apps
             emoji = TYPE_EMOJI.get(slug, "📋")
 
             for pack in packs:
