@@ -54,6 +54,7 @@ def client() -> MagicMock:
     mock.get_program = AsyncMock()
     mock.get_pack = AsyncMock(return_value=Pack())
     mock.get_playlists = AsyncMock(return_value=[])
+    mock.list_narrators = AsyncMock(return_value=[])
     return mock
 
 
@@ -666,3 +667,38 @@ def test_breathe_removed_from_categories() -> None:
     assert "breathe" not in slugs
     assert "collection-calm-for-work" in slugs
     assert "collection-calm-for-kids" in slugs
+
+
+@pytest.mark.asyncio
+async def test_narrators_sidebar_list_filter_and_open(client: MagicMock, player: MagicMock) -> None:
+    client.list_narrators.return_value = [
+        PackItem.model_validate({"type": "narrator", "narrator_id": "n1", "title": "Tamara Levitt"}),
+        PackItem.model_validate({"type": "narrator", "narrator_id": "a1", "title": "Alanis Morissette"}),
+        PackItem.model_validate({"type": "narrator", "narrator_id": "b1", "title": "Bob Ross"}),
+    ]
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        app._load_narrators()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        listview = app.query_one("#narrator-list", ListView)
+        rows = [str(i.query_one(Label).render()) for i in listview.query("ListItem")]
+        # alphabetical with letter-section headers; names present
+        assert "— A —" in rows and "— B —" in rows and "— T —" in rows
+        assert any("Tamara Levitt" in r for r in rows)
+
+        # live filter narrows the list
+        app._populate_narrators("bob")
+        await pilot.pause()
+        names = [str(i.query_one(Label).render()) for i in listview.query("ListItem") if not i.disabled]
+        assert names == ["Bob Ross"]
+
+        # opening a narrator loads its feed
+        with patch.object(app, "_load_category") as load_category:
+            app._open_item(client.list_narrators.return_value[0])
+        load_category.assert_called_once_with("narrator-n1", "Tamara Levitt")
+
+
+def test_narrators_in_sidebar_categories() -> None:
+    # the Narrators entry is a TUI-only sidebar item, not a library category
+    assert "narrators" not in [slug for slug, _, _ in browse.CATEGORIES]

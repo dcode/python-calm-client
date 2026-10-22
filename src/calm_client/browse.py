@@ -7,6 +7,7 @@ and an inline audio player with playback controls.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import io
 import logging
@@ -24,7 +25,7 @@ from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, ProgressBar, Static
 
 from .client import DEFAULT_CATEGORIES
-from .models import FeedResponse, Guide, MediaType, Pack, PackItem, PackItemAsset, Playlist, Program
+from .models import FeedResponse, Guide, MediaType, Pack, PackItem, PackItemAsset, Playlist, Program, SearchItem
 
 if TYPE_CHECKING:
     from .client import CalmClient
@@ -345,6 +346,30 @@ CatalogCard:focus {
     width: 1fr;
 }
 
+#narrator-panel {
+    display: none;
+    width: 1fr;
+}
+
+#narrator-title {
+    padding: 1 2;
+    background: $surface;
+    border-bottom: solid $surface-darken-2;
+}
+
+#narrator-filter {
+    margin: 0 1;
+}
+
+#narrator-list {
+    height: 1fr;
+}
+
+.narrator-header {
+    color: $accent;
+    text-style: bold;
+}
+
 #track-header {
     height: auto;
     max-height: 14;
@@ -515,6 +540,10 @@ class BrowseApp(App):
         self._pack_cache: dict[str, Pack] = {}
         # resolved guides by id, so playlist hydration doesn't refetch
         self._guide_cache: dict[str, tuple[Guide, Program]] = {}
+        # narrators/artists, fetched once and filtered in-memory
+        self._narrators: list[SearchItem] = []
+        # cap concurrent album-art downloads so a big grid doesn't fire hundreds at once
+        self._art_semaphore = asyncio.Semaphore(6)
         self._current_category: str = ""
         self._current_pack: Pack | None = None
         self._current_item: PackItem | None = None
@@ -542,6 +571,7 @@ class BrowseApp(App):
                 yield Static("☁ Calm", classes="sidebar-title")
                 yield ListView(
                     *[CategoryItem(slug, emoji, name) for slug, emoji, name in CATEGORIES],
+                    CategoryItem("narrators", "🎙", "Narrators"),
                     id="category-list",
                 )
 
@@ -551,6 +581,12 @@ class BrowseApp(App):
                     yield Static("Select a category", classes="panel-title", id="catalog-title")
                 yield Input(placeholder="Search...", id="search-input")
                 yield ScrollableContainer(id="catalog-grid")
+
+            # Narrators & Artists view (hidden initially)
+            with Vertical(id="narrator-panel"):
+                yield Static("🎙  Narrators & Artists", classes="panel-title", id="narrator-title")
+                yield Input(placeholder="Filter by name...", id="narrator-filter")
+                yield ListView(id="narrator-list")
 
             # Track listing view (hidden initially)
             with Vertical(id="track-panel"):
@@ -613,16 +649,25 @@ class BrowseApp(App):
     # ------------------------------------------------------------------
 
     def _switch_to_grid(self) -> None:
-        """Show the catalog grid, hide the track panel."""
+        """Show the catalog grid, hide the other panels."""
         self._view = "grid"
         self.query_one("#catalog-panel").styles.display = "block"
         self.query_one("#track-panel").styles.display = "none"
+        self.query_one("#narrator-panel").styles.display = "none"
 
     def _switch_to_tracks(self) -> None:
         """Show the track panel, hide the catalog grid."""
         self._view = "tracks"
         self.query_one("#catalog-panel").styles.display = "none"
+        self.query_one("#narrator-panel").styles.display = "none"
         self.query_one("#track-panel").styles.display = "block"
+
+    def _switch_to_narrators(self) -> None:
+        """Show the narrators panel, hide the others."""
+        self._view = "narrators"
+        self.query_one("#catalog-panel").styles.display = "none"
+        self.query_one("#track-panel").styles.display = "none"
+        self.query_one("#narrator-panel").styles.display = "block"
 
     async def action_back(self) -> None:
         """Navigate back based on current state."""
@@ -634,6 +679,12 @@ class BrowseApp(App):
         # Expanded player → bar
         if self._player_mode == "expanded":
             self._show_player_bar()
+            return
+
+        # Narrators → back to the sidebar/grid
+        if self._view == "narrators":
+            self._switch_to_grid()
+            self.query_one("#category-list", ListView).focus()
             return
 
         # Track listing → grid
@@ -656,6 +707,8 @@ class BrowseApp(App):
         if isinstance(item, CategoryItem):
             if item.slug == "search":
                 self._show_search_input()
+            elif item.slug == "narrators":
+                self._load_narrators()
             else:
                 self._load_category(item.slug, item.cat_name)
         elif isinstance(item, TrackItem) and self._current_program:
@@ -877,6 +930,53 @@ class BrowseApp(App):
             changed = True
         if changed and self._view == "tracks" and self._current_pack is pack:
             self._show_pack(pack)
+
+    @work(exclusive=True, group="narrators-load")
+    async def _load_narrators(self) -> None:
+        """Fetch the narrators/artists catalog and show it as a filterable name list."""
+        self._switch_to_narrators()
+        title = self.query_one("#narrator-title", Static)
+        listview = self.query_one("#narrator-list", ListView)
+        await listview.clear()
+        self.query_one("#narrator-filter", Input).value = ""
+        title.update("⏳ Loading Narrators & Artists...")
+
+        if not self._narrators:
+            try:
+                self._narrators = await self._client.list_narrators()
+            except Exception as e:
+                self.notify(f"Error loading narrators: {e}", severity="error")
+                title.update("Error loading narrators")
+                return
+
+        title.update(f"🎙  Narrators & Artists ({len(self._narrators)})")
+        self._populate_narrators("")
+        with contextlib.suppress(Exception):
+            self.query_one("#narrator-filter", Input).focus()
+
+    def _populate_narrators(self, query: str) -> None:
+        """Fill the narrator list, filtered by name, with A/B/C section headers."""
+        listview = self.query_one("#narrator-list", ListView)
+        listview.clear()
+        needle = query.strip().lower()
+        matches = [n for n in self._narrators if needle in n.title.lower()]
+        current_letter = ""
+        for narrator in matches:
+            first = narrator.title[:1].upper()
+            letter = first if first.isalpha() else "#"
+            if letter != current_letter:
+                current_letter = letter
+                header = ListItem(Label(f"— {letter} —", classes="narrator-header"))
+                header.disabled = True  # a non-selectable section divider
+                self.call_after_refresh(listview.append, header)
+            row = ListItem(Label(narrator.title))
+            row.item = narrator  # type: ignore[attr-defined]
+            self.call_after_refresh(listview.append, row)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Live-filter the narrator list as the user types."""
+        if event.input.id == "narrator-filter":
+            self._populate_narrators(event.value)
 
     # ------------------------------------------------------------------
     # Category loading
@@ -1396,7 +1496,8 @@ class BrowseApp(App):
         try:
             import httpx
 
-            async with httpx.AsyncClient() as http:
+            # bound concurrency: a 200+ item grid otherwise opens that many sockets at once
+            async with self._art_semaphore, httpx.AsyncClient() as http:
                 resp = await http.get(url, timeout=10, follow_redirects=True)
                 resp.raise_for_status()
                 pixels = _resize_image(resp.content, width=width, height=height)

@@ -20,6 +20,7 @@ from calm_client.models import (
     Playlist,
     Program,
     ProgramResponse,
+    SearchItem,
     SearchResponse,
 )
 
@@ -303,6 +304,18 @@ class CalmClient:
         if "pack" in data:
             return SearchResponse(**data["pack"])
         return SearchResponse(**data)
+
+    async def list_narrators(self) -> list[SearchItem]:
+        """List the narrators and artists in the catalog.
+
+        Calm has no narrator index, so this searches the term ``narrator``, which Calm
+        answers with the "Narrators & Artists" catalog. Results are ranked search hits
+        (not guaranteed exhaustive). Each item is a ``FOLDER`` whose ``path`` opens the
+        narrator's feed; tell narrators from artists by ``content_type``.
+        """
+        logger.info("list_narrators")
+        results = await self.search("narrator")
+        return [item for item in results.items if item.item_type == "narrator"]
 
     async def get_category_feed(self, category: str) -> FeedResponse:
         """Fetch the full category feed with all packs and items."""
