@@ -26,13 +26,14 @@ DEFAULT_CATEGORIES: list[tuple[str, str, str]] = [
     # (api_slug, emoji, display_name)
     ("home", "🏠", "Home"),
     ("sleep", "🌙", "Sleep"),
-    ("meditate", "◎", "Meditate"),
-    ("music", "♫", "Music"),
+    # every icon is a double-width emoji, so labels line up in a terminal
+    ("meditate", "🧘", "Meditate"),
+    ("music", "🎵", "Music"),
     ("work", "☕", "For Work"),
     ("wisdom", "💡", "Wisdom"),
     ("kids", "🧒", "Kids"),
     ("movement", "🏃", "Movement"),
-    ("breathe", "🌬️", "Breathe"),
+    ("breathe", "💨", "Breathe"),
 ]
 
 

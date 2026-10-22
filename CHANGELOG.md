@@ -34,6 +34,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `calm browse` Home: the Favorites card opens your favorites (it was always empty);
+  Recently Played and My Collections, which Calm's apps fill in through endpoints the
+  client doesn't have, are hidden instead of showing empty; untitled rows get their
+  names ("Navigation", "Today's Daily Calm"); entries that link to a feed or pack open
+  it; and a guide entry such as today's Daily Calm plays that guide instead of the first
+  one in its program.
+- The `calm browse` sidebar icons are all double-width, so the category names line up.
 - `calm browse` showed at most about 10 items per collection: feeds only embed a
   preview of each pack. Opening a pack now loads all of its items (e.g. 263 Sleep
   Stories in Fiction instead of 10), and cards show "10+ items" until then.

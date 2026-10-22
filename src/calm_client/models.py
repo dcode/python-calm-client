@@ -312,7 +312,10 @@ class Pack(BaseModel):
 
     title: str = ""
     pack_class: str = ""
+    content_description: str | None = None
     display_type: str | None = None
+    # "client" packs (favorites, recently played, collections) arrive empty: apps fill them in
+    evaluation_type: str | None = None
     items: list[PackItem] = Field(default_factory=list)
     has_more: bool = False
     total_item_number: int = 0

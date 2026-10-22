@@ -472,3 +472,85 @@ async def test_pack_full_load_failures(client: MagicMock, player: MagicMock) -> 
             await app.workers.wait_for_complete()
             assert "fiction" in app._pack_cache
             assert app._current_pack is None
+
+
+def test_category_icons_line_up() -> None:
+    from rich.cells import cell_len
+
+    from calm_client.browse import CategoryItem
+
+    for slug, emoji, name in browse.CATEGORIES:
+        label = next(iter(CategoryItem(slug, emoji, name).compose()))
+        assert isinstance(label, Label)
+        text = str(label.render())
+        assert cell_len(text) - cell_len(name) == 5, slug
+    narrow = next(iter(CategoryItem("x", "◎", "X").compose()))
+    assert str(narrow.render()) == " ◎   X"
+
+
+@pytest.mark.asyncio
+async def test_home_feed_special_packs(client: MagicMock, player: MagicMock) -> None:
+    nav = Pack(
+        pack_class="quick-nav",
+        content_description="Navigation",
+        items=[
+            PackItem.model_validate({"type": "feed", "feed_id": "soundscape", "title": "Soundscapes"}),
+            PackItem.model_validate({"type": "pack", "pack_class": "rain", "title": "Rain"}),
+        ],
+    )
+    daily = Pack(
+        pack_class="todays-daily-calm",
+        content_description="Today's Daily Calm",
+        items=[PackItem.model_validate({"type": "guide", "guide_id": "g2", "program_id": "p1", "title": "Daily Calm"})],
+    )
+    client.get_category_feed.return_value = FeedResponse(
+        title="Home",
+        packs=[
+            nav,
+            Pack(title="Favorites", pack_class="faves", evaluation_type="client"),
+            Pack(title="My Collections", pack_class="faves-collections", evaluation_type="client"),
+            Pack(title="Recently Played", pack_class="recently-completed", evaluation_type="client"),
+            daily,
+        ],
+    )
+    client.get_program.return_value = _program(_guide("g1"), _guide("g2"))
+
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        with (
+            patch.object(app, "_fetch_card_art"),
+            patch.object(app, "_fetch_header_art"),
+            patch.object(app, "_load_all_favorites") as favorites,
+            patch.object(app, "_play_track") as play_track,
+        ):
+            app._load_category("home", "Home")
+            await app.workers.wait_for_complete()
+            cards = {card.card_title: card for card in app.query(CatalogCard)}
+            # untitled packs take their description; client-filled packs other than favorites are hidden
+            assert list(cards) == ["Navigation", "Favorites", "Today's Daily Calm"]
+            assert cards["Favorites"].card_subtitle == "Your favorites"
+
+            # the favorites card loads favorites, like the `f` key
+            faves_pack = cards["Favorites"].card_pack
+            assert faves_pack is not None
+            app._drill_into_pack(faves_pack)
+            favorites.assert_called_once()
+
+            # a guide entry plays that guide, not the program's first
+            app._open_item(daily.items[0])
+            await app.workers.wait_for_complete()
+            play_track.assert_called_once_with(1)
+
+            with patch.object(app, "_load_category") as load_category, patch.object(app, "_drill_into_pack") as drill:
+                # navigation entries open their feed or pack, from the list or the play key
+                app._show_pack(nav)
+                await pilot.pause()
+                track_list = app.query_one("#track-list", ListView)
+                track_list.focus()
+                track_list.index = 0
+                await pilot.press("enter")
+                load_category.assert_called_once_with("soundscape", "Soundscapes")
+                track_list.index = 1
+                app.action_play_item()
+                assert drill.call_args.args[0].pack_class == "rain"
+                assert drill.call_args.args[0].has_more
