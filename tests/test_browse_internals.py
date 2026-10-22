@@ -527,7 +527,8 @@ async def test_home_feed_special_packs(client: MagicMock, player: MagicMock) -> 
             await app.workers.wait_for_complete()
             cards = {card.card_title: card for card in app.query(CatalogCard)}
             # untitled packs take their description; client-filled packs other than favorites are hidden
-            assert list(cards) == ["Navigation", "Favorites", "Today's Daily Calm"]
+            # favorites come first, as in the apps
+            assert list(cards) == ["Favorites", "Navigation", "Today's Daily Calm"]
             assert cards["Favorites"].card_subtitle == "Your favorites"
 
             # the favorites card loads favorites, like the `f` key
