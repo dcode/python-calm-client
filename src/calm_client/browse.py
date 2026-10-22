@@ -23,7 +23,7 @@ from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, ProgressBar, Static
 
 from .client import DEFAULT_CATEGORIES
-from .models import FeedResponse, Guide, Pack, PackItem, Program
+from .models import FeedResponse, Guide, Pack, PackItem, PackItemAsset, Playlist, Program
 
 if TYPE_CHECKING:
     from .client import CalmClient
@@ -38,6 +38,10 @@ log = logging.getLogger(__name__)
 CATEGORIES = DEFAULT_CATEGORIES
 # the feed pack the apps fill with the account's favorites
 FAVES_PACK = "faves"
+# the feed pack the apps fill with the user's playlists ("My Collections")
+COLLECTIONS_PACK = "faves-collections"
+# sentinel pack_class prefix for a single playlist's track listing
+PLAYLIST_PREFIX = "playlist:"
 
 # Emoji fallbacks for items without images
 TYPE_EMOJI: dict[str, str] = {
@@ -486,6 +490,8 @@ class BrowseApp(App):
         self._feed_cache: dict[str, FeedResponse] = {}
         # full packs by pack_class; feeds only embed a preview (about 10 items) of each pack
         self._pack_cache: dict[str, Pack] = {}
+        # resolved guides by id, so playlist hydration doesn't refetch
+        self._guide_cache: dict[str, tuple[Guide, Program]] = {}
         self._current_category: str = ""
         self._current_pack: Pack | None = None
         self._current_item: PackItem | None = None
@@ -773,6 +779,83 @@ class BrowseApp(App):
             if fav.image and fav.image.url:
                 self._fetch_card_art(card, fav.image.url)
 
+    @work(exclusive=True, group="collections-load")
+    async def _load_collections(self) -> None:
+        """Fetch the user's playlists and display them as cards."""
+        self._switch_to_grid()
+        title = self.query_one("#catalog-title", Static)
+        grid = self.query_one("#catalog-grid", ScrollableContainer)
+        grid.query(CatalogCard).remove()
+        title.update("⏳ Loading My Collections...")
+        self.sub_title = "Your playlists"
+
+        try:
+            playlists = await self._client.get_playlists()
+        except Exception as e:
+            self.notify(f"Error loading collections: {e}", severity="error")
+            title.update("Error loading collections")
+            return
+
+        if not playlists:
+            title.update("My Collections (Empty)")
+            self.notify("No playlists yet", severity="warning")
+            return
+
+        title.update(f"≡ My Collections ({len(playlists)})")
+        for playlist in playlists:
+            pack = self._playlist_pack(playlist)
+            self._pack_cache[pack.pack_class] = pack
+            card = CatalogCard(
+                title=playlist.name or "Untitled",
+                subtitle=f"{len(playlist.items)} items",
+                emoji="≡",
+                pack=pack,
+            )
+            await grid.mount(card)
+            if playlist.image_url:
+                self._fetch_card_art(card, playlist.image_url)
+
+        cards = grid.query(CatalogCard)
+        if cards:
+            cards[0].focus()
+
+    @staticmethod
+    def _playlist_pack(playlist: Playlist) -> Pack:
+        """Represent a playlist as a Pack of (unhydrated) guide items."""
+        return Pack(
+            title=playlist.name or "Untitled",
+            pack_class=f"{PLAYLIST_PREFIX}{playlist.id}",
+            items=[
+                PackItem(type="guide", guide_id=i.guide_id, program_id=i.program_id)
+                for i in playlist.items
+                if i.guide_id
+            ],
+        )
+
+    @work(exclusive=True, group="playlist-hydrate")
+    async def _hydrate_playlist(self, pack: Pack) -> None:
+        """Fill in titles, narrators and durations for a playlist's guide items."""
+        changed = False
+        for item in pack.items:
+            if item.title or not item.guide_id:
+                continue
+            if item.guide_id in self._guide_cache:
+                guide, program = self._guide_cache[item.guide_id]
+            else:
+                try:
+                    guide, program = await self._client.get_guide(item.guide_id)
+                except Exception:
+                    continue
+                self._guide_cache[item.guide_id] = (guide, program)
+            item.title = guide.title
+            item.narrator_name = guide.narrator_name or program.narrator_name
+            item.assets = [
+                PackItemAsset(url=a.url, content_type=a.content_type, duration=a.duration) for a in guide.assets
+            ]
+            changed = True
+        if changed and self._view == "tracks" and self._current_pack is pack:
+            self._show_pack(pack)
+
     # ------------------------------------------------------------------
     # Category loading
     # ------------------------------------------------------------------
@@ -803,10 +886,13 @@ class BrowseApp(App):
             title.update(feed.title or name)
             self.sub_title = feed.subtitle or f"Browse {name}"
 
-            # Packs the apps fill in themselves arrive empty; of those, only favorites
-            # has an endpoint the client can load (recently played and collections don't)
-            packs = [p for p in feed.packs if p.items or p.pack_class == FAVES_PACK]
-            packs.sort(key=lambda p: p.pack_class != FAVES_PACK)  # favorites first, as in the apps
+            # Packs the apps fill in themselves arrive empty; of those, favorites and
+            # collections have endpoints the client can load (recently played does not)
+            client_packs = (FAVES_PACK, COLLECTIONS_PACK)
+            packs = [p for p in feed.packs if p.items or p.pack_class in client_packs]
+            # favorites first, then collections, as in the apps
+            order = {FAVES_PACK: 0, COLLECTIONS_PACK: 1}
+            packs.sort(key=lambda p: order.get(p.pack_class, 2))
             emoji = TYPE_EMOJI.get(slug, "📋")
 
             for pack in packs:
@@ -827,6 +913,8 @@ class BrowseApp(App):
                     subtitle=(
                         "Your favorites"
                         if pack.pack_class == FAVES_PACK
+                        else "Your playlists"
+                        if pack.pack_class == COLLECTIONS_PACK
                         else f"{count}+ items"
                         if pack.has_more and pack.items
                         else f"{count} items"
@@ -861,9 +949,15 @@ class BrowseApp(App):
         if pack.pack_class == FAVES_PACK:
             self._load_all_favorites()
             return
+        if pack.pack_class == COLLECTIONS_PACK:
+            self._load_collections()
+            return
         full = self._pack_cache.get(pack.pack_class)
         self._show_pack(full or pack)
-        if full is None and pack.has_more and pack.pack_class:
+        if pack.pack_class.startswith(PLAYLIST_PREFIX):
+            # playlist items carry only ids; fill in titles and durations
+            self._hydrate_playlist(full or pack)
+        elif full is None and pack.has_more and pack.pack_class:
             self._load_full_pack(pack)
 
     def _append_pack_item(self, track_list: ListView, item: ListItem, pack: Pack) -> None:

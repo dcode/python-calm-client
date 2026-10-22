@@ -448,3 +448,60 @@ async def test_browse_bad_path(path: str) -> None:
     async with CalmClient("token") as client:
         with pytest.raises(ValueError, match="browse path"):
             await client.browse(path)
+
+
+@pytest.mark.asyncio
+async def test_get_playlists(respx_mock: Any) -> None:
+    respx_mock.get(f"{API}/content/playlist").mock(
+        return_value=Response(
+            200,
+            json=[
+                {
+                    "id": "pl1",
+                    "name": "Ease to Sleep",
+                    "user_id": "u1",
+                    "items": [{"type": "guide", "guide_id": "g1", "program_id": "p1"}],
+                    "image": {"url": "http://img/pl.png", "width": 100, "height": 100},
+                },
+                {"id": "pl2", "name": "Empty", "items": []},
+            ],
+        )
+    )
+    async with CalmClient("token") as client:
+        playlists = await client.get_playlists()
+    assert [p.name for p in playlists] == ["Ease to Sleep", "Empty"]
+    assert playlists[0].items[0].guide_id == "g1"
+    assert playlists[0].image_url == "http://img/pl.png"
+    assert playlists[1].image_url is None
+
+
+@pytest.mark.asyncio
+async def test_fave_guide_uses_guide_path(respx_mock: Any) -> None:
+    route = respx_mock.post(f"{API}/programs/guides/g1/faves").mock(
+        return_value=Response(200, json={"fave": {"guide_id": "g1"}})
+    )
+    delete = respx_mock.delete(f"{API}/programs/guides/g1/faves").mock(return_value=Response(200, json={}))
+    async with CalmClient("token") as client:
+        await client.add_fave(guide_id="g1")
+        await client.remove_fave(guide_id="g1")
+    assert route.called and delete.called
+
+
+@pytest.mark.asyncio
+async def test_fave_program_uses_generic_endpoint(respx_mock: Any) -> None:
+    route = respx_mock.post(f"{API}/faves").mock(return_value=Response(200, json={}))
+    async with CalmClient("token") as client:
+        await client.add_fave(program_id="N1ilgb7aV")
+    assert route.called
+    import json as _json
+
+    assert _json.loads(route.calls.last.request.content) == {"program_id": "N1ilgb7aV"}
+
+
+@pytest.mark.asyncio
+async def test_fave_requires_exactly_one_id() -> None:
+    async with CalmClient("token") as client:
+        with pytest.raises(ValueError, match="exactly one"):
+            await client.add_fave()
+        with pytest.raises(ValueError, match="exactly one"):
+            await client.add_fave(guide_id="g", program_id="p")

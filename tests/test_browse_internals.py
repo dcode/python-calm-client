@@ -52,6 +52,7 @@ def client() -> MagicMock:
     mock.search = AsyncMock()
     mock.get_program = AsyncMock()
     mock.get_pack = AsyncMock(return_value=Pack())
+    mock.get_playlists = AsyncMock(return_value=[])
     return mock
 
 
@@ -526,16 +527,24 @@ async def test_home_feed_special_packs(client: MagicMock, player: MagicMock) -> 
             app._load_category("home", "Home")
             await app.workers.wait_for_complete()
             cards = {card.card_title: card for card in app.query(CatalogCard)}
-            # untitled packs take their description; client-filled packs other than favorites are hidden
-            # favorites come first, as in the apps
-            assert list(cards) == ["Favorites", "Navigation", "Today's Daily Calm"]
+            # untitled packs take their description; recently-played (no endpoint) stays hidden.
+            # favorites first, then collections, as in the apps
+            assert list(cards) == ["Favorites", "My Collections", "Navigation", "Today's Daily Calm"]
             assert cards["Favorites"].card_subtitle == "Your favorites"
+            assert cards["My Collections"].card_subtitle == "Your playlists"
 
             # the favorites card loads favorites, like the `f` key
             faves_pack = cards["Favorites"].card_pack
             assert faves_pack is not None
             app._drill_into_pack(faves_pack)
             favorites.assert_called_once()
+
+            # the collections card loads playlists
+            with patch.object(app, "_load_collections") as collections:
+                collections_pack = cards["My Collections"].card_pack
+                assert collections_pack is not None
+                app._drill_into_pack(collections_pack)
+                collections.assert_called_once()
 
             # a guide entry plays that guide, not the program's first
             app._open_item(daily.items[0])
@@ -555,3 +564,43 @@ async def test_home_feed_special_packs(client: MagicMock, player: MagicMock) -> 
                 app.action_play_item()
                 assert drill.call_args.args[0].pack_class == "rain"
                 assert drill.call_args.args[0].has_more
+
+
+@pytest.mark.asyncio
+async def test_collections_load_and_hydrate(client: MagicMock, player: MagicMock) -> None:
+    from calm_client.models import Playlist, PlaylistItem
+
+    client.get_playlists.return_value = [
+        Playlist(
+            id="pl1",
+            name="Ease to Sleep",
+            image=ImageAsset(url="http://img/pl.png"),
+            items=[PlaylistItem(guide_id="g1", program_id="p1"), PlaylistItem(guide_id="g2", program_id="p1")],
+        ),
+        Playlist(id="pl2", name="Empty", items=[]),
+    ]
+    client.get_guide.side_effect = lambda gid: (_guide(gid), _program(_guide("g1"), _guide("g2")))
+
+    app = BrowseApp(client)
+    async with app.run_test() as pilot:
+        with patch.object(app, "_fetch_card_art"), patch.object(app, "_fetch_header_art"):
+            # the My Collections card lists the playlists
+            app._load_collections()
+            await app.workers.wait_for_complete()
+            titles = [c.card_title for c in app.query(CatalogCard)]
+            assert titles == ["Ease to Sleep", "Empty"]
+
+            # opening a playlist shows its items, hydrated with real titles
+            pack = next(c for c in app.query(CatalogCard) if c.card_title == "Ease to Sleep").card_pack
+            assert pack is not None and pack.pack_class.startswith("playlist:")
+            app._drill_into_pack(pack)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            rows = [str(i.query_one(Label).render()) for i in app.query_one("#track-list", ListView).query("ListItem")]
+            assert any("Track g1" in r for r in rows)
+            assert client.get_guide.await_count == 2
+
+            # reopening uses the guide cache (no refetch)
+            app._drill_into_pack(pack)
+            await app.workers.wait_for_complete()
+            assert client.get_guide.await_count == 2

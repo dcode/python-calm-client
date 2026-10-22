@@ -339,6 +339,39 @@ class FeedResponse(BaseModel):
     tags: list[FeedTag] = Field(default_factory=list)
 
 
+class PlaylistItem(BaseModel):
+    """An entry in a user playlist: a reference to a guide, not a hydrated item.
+
+    Playlists store only ids; use ``CalmClient.get_guide`` to resolve titles and audio.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: str = "guide"
+    guide_id: str | None = None
+    program_id: str | None = None
+
+
+class Playlist(BaseModel):
+    """A user-created playlist ("My Collections" in the apps)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    name: str = ""
+    items: list[PlaylistItem] = Field(default_factory=list)
+    user_id: str | None = None
+    cover_image_asset_id: str | None = None
+    image: ImageAsset | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    @property
+    def image_url(self) -> str | None:
+        """Return the cover image URL, if the playlist has one."""
+        return self.image.url if self.image and self.image.url else None
+
+
 Feed.model_rebuild()
 
 Track = Guide

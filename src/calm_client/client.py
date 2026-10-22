@@ -17,6 +17,7 @@ from calm_client.models import (
     GuideSummary,
     Pack,
     PackItem,
+    Playlist,
     Program,
     ProgramResponse,
     SearchResponse,
@@ -325,6 +326,66 @@ class CalmClient:
         logger.info("get_pack", pack_class=pack_class)
         data = await self._request("GET", f"packs/class/{pack_class}")
         return Pack.model_validate(data.get("pack", data))
+
+    async def get_playlists(self) -> list[Playlist]:
+        """Fetch the user's playlists ("My Collections"). Requires authentication."""
+        logger.info("get_playlists")
+        data = await self._request("GET", "content/playlist")
+        return [Playlist.model_validate(p) for p in data]
+
+    async def add_fave(
+        self,
+        *,
+        guide_id: str | None = None,
+        program_id: str | None = None,
+        feed_id: str | None = None,
+        pack_class: str | None = None,
+        content_id: str | None = None,
+    ) -> None:
+        """Favorite a guide, program, feed, pack or content item. Pass exactly one id."""
+        await self._fave("POST", guide_id, program_id, feed_id, pack_class, content_id)
+
+    async def remove_fave(
+        self,
+        *,
+        guide_id: str | None = None,
+        program_id: str | None = None,
+        feed_id: str | None = None,
+        pack_class: str | None = None,
+        content_id: str | None = None,
+    ) -> None:
+        """Remove a favorite. Pass exactly one id, matching ``add_fave``."""
+        await self._fave("DELETE", guide_id, program_id, feed_id, pack_class, content_id)
+
+    async def _fave(
+        self,
+        method: str,
+        guide_id: str | None,
+        program_id: str | None,
+        feed_id: str | None,
+        pack_class: str | None,
+        content_id: str | None,
+    ) -> None:
+        """Add or remove a favorite via the endpoint that matches the content type."""
+        body = {
+            k: v
+            for k, v in (
+                ("guide_id", guide_id),
+                ("program_id", program_id),
+                ("feed_id", feed_id),
+                ("pack_class", pack_class),
+                ("content_id", content_id),
+            )
+            if v is not None
+        }
+        if len(body) != 1:
+            raise ValueError("Pass exactly one of guide_id, program_id, feed_id, pack_class, content_id")
+        logger.info("fave", method=method, **body)
+        # guides have a dedicated path (no body); everything else uses the generic /faves
+        if guide_id is not None:
+            await self._request(method, f"programs/guides/{guide_id}/faves")
+        else:
+            await self._request(method, "faves", json=body)
 
     async def get_guide_summary(self, guide_id: str) -> GuideSummary:
         """Fetch a guide's summary: the program it belongs to and its lock flags."""
