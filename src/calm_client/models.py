@@ -229,6 +229,7 @@ class PackItem(Lockable):
     program_id: str | None = None
     feed_id: str | None = None
     pack_class: str | None = None
+    narrator_id: str | None = None
     title: str = ""
     subtitle: str | None = None
     item_type: str = Field(default="unknown", alias="type")
@@ -258,11 +259,14 @@ class PackItem(Lockable):
 
     @property
     def path(self) -> str | None:
-        """Return the ``CalmClient.browse`` path of a sub-feed or sub-pack item."""
+        """Return the ``CalmClient.browse`` path of a sub-feed, sub-pack or narrator item."""
         if self.item_type == "feed" and self.feed_id:
             return f"feed/{self.feed_id}"
         if self.item_type == "pack" and self.pack_class:
             return f"pack/{self.pack_class}"
+        # a narrator/artist is browsable as the feed packs/feeds/narrator-<id>
+        if self.item_type == "narrator" and self.narrator_id:
+            return f"feed/narrator-{self.narrator_id}"
         return None
 
     @property
@@ -325,6 +329,14 @@ class Pack(BaseModel):
     def has_playable_items(self) -> bool:
         """Return whether the pack holds guides or programs (rather than only promos)."""
         return any(item.media_type in (MediaType.TRACK, MediaType.ALBUM) for item in self.items)
+
+    @property
+    def has_content(self) -> bool:
+        """Return whether the pack holds anything to open: a guide, program or sub-folder.
+
+        Rows that are only links, breathe bubbles or text (e.g. "Resources") have none.
+        """
+        return any(item.media_type is not MediaType.UNKNOWN for item in self.items)
 
 
 class FeedResponse(BaseModel):

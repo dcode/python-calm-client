@@ -55,7 +55,7 @@ def sample_feed() -> FeedResponse:
         title="Test Item",
         content_id="123",
         program_id="p123",
-        item_type="audio",
+        item_type="program",
         is_new=True,
         is_unlocked=True,
         image=ImageAsset(url="http://img"),
@@ -156,7 +156,7 @@ async def test_favorites_flow(mock_client: MagicMock, mock_player: MagicMock) ->
 @pytest.mark.asyncio
 async def test_drill_down_pack(mock_client: MagicMock, mock_player: MagicMock) -> None:
     """Test drilling down into a pack."""
-    item = PackItem(title="Inner Item", content_id="i1", item_type="audio")
+    item = PackItem(title="Inner Item", content_id="i1", program_id="i1", item_type="program")
     outer_pack = Pack(title="Outer Pack", items=[item])
 
     feed = FeedResponse(title="F", packs=[outer_pack])

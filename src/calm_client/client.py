@@ -30,11 +30,12 @@ DEFAULT_CATEGORIES: list[tuple[str, str, str]] = [
     # every icon is a double-width emoji, so labels line up in a terminal
     ("meditate", "🧘", "Meditate"),
     ("music", "🎵", "Music"),
-    ("work", "☕", "For Work"),
+    # the app's "For Work"/"Kids" are the richer collection feeds, not the bare work/kids feeds
+    ("collection-calm-for-work", "☕", "For Work"),
     ("wisdom", "💡", "Wisdom"),
-    ("kids", "🧒", "Kids"),
+    ("collection-calm-for-kids", "🧒", "Kids"),
     ("movement", "🏃", "Movement"),
-    ("breathe", "💨", "Breathe"),
+    # "breathe" is omitted: its feed holds only breathe-bubble exercises, which have no audio to play
 ]
 
 

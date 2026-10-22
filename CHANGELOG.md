@@ -38,6 +38,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `calm browse` now opens narrators/artists: a search result of type `narrator` opens
+  that narrator's feed (`packs/feeds/narrator-<id>`) instead of failing. Guide search
+  results keep their `guide_id`, so playback starts on the right guide.
+- Breathe is removed from the categories (its feed holds only breathe-bubble exercises,
+  which have no audio); opening any non-audio entry shows a notice instead of a 404.
+- "For Work" and "Kids" use the full collection feeds the apps show, not the smaller
+  `work`/`kids` feeds.
+- Rows with nothing to open (e.g. "Resources", which is just links) are hidden.
+- Catalog cards wrap long titles onto a second line instead of truncating, and drop the
+  stray blank line above art-less cards.
 - `calm browse` Home: the Favorites card opens your favorites (it was always empty);
   Recently Played and My Collections, which Calm's apps fill in through endpoints the
   client doesn't have, are hidden instead of showing empty; untitled rows get their
