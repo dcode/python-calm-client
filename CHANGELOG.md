@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `CalmClient.search()` takes optional single-value `category` and `duration` filters (ids from `search/v2/config`, e.g. `soundscapes`, `ten_min`); `list_narrators()` uses `category=narrators_artists` to return narrator-scoped results.
 - `CalmClient.list_narrators()` returns the narrators and artists catalog (Calm has no
   narrator index; this searches `narrator`, which Calm answers with the full list).
 - `calm browse` has a **Narrators & Artists** sidebar entry: a fast name list (not an

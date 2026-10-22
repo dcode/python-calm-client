@@ -297,25 +297,36 @@ class CalmClient:
         response = ProgramResponse(**data)
         return response.program
 
-    async def search(self, query: str) -> SearchResponse:
-        """Search the catalog for the given query."""
-        logger.info("search", query=query)
-        data = await self._request("GET", "search/v2", params={"query": query})
+    async def search(self, query: str, *, category: str | None = None, duration: str | None = None) -> SearchResponse:
+        """Search the catalog, optionally scoped by one category and/or duration.
+
+        ``category`` and ``duration`` take a single option id from ``search/v2/config``
+        (e.g. ``narrators_artists``, ``soundscapes``; ``ten_min``, ``sixty_plus_min``).
+        The API ignores an unknown value and rejects multiple, so only one of each is
+        supported. Results are a single ranked page (~200 max); there is no pagination.
+        """
+        logger.info("search", query=query, category=category, duration=duration)
+        params = {"query": query}
+        if category:
+            params["category"] = category
+        if duration:
+            params["duration"] = duration
+        data = await self._request("GET", "search/v2", params=params)
         if "pack" in data:
             return SearchResponse(**data["pack"])
         return SearchResponse(**data)
 
-    async def list_narrators(self, query: str = "narrator") -> list[SearchItem]:
-        """Search for narrators and artists.
+    async def list_narrators(self, query: str = "") -> list[SearchItem]:
+        """Search narrators and artists, scoped to the ``narrators_artists`` category.
 
-        Calm has no narrator index. The default query ``narrator`` returns the
-        "Narrators & Artists" catalog, but search is capped (~200 hits, alphabetical),
-        so it is a starter set, not the whole roster — pass a name to find anyone.
-        Each item is a ``FOLDER`` whose ``path`` opens the narrator's feed; tell
-        narrators from artists by ``content_type``.
+        Calm has no narrator index. An empty query returns the "Narrators & Artists"
+        catalog, but search is capped (~200 hits, alphabetical), so it is a starter set,
+        not the whole roster — pass a name to find anyone. Each item is a ``FOLDER``
+        whose ``path`` opens the narrator's feed; tell narrators from artists by
+        ``content_type``.
         """
         logger.info("list_narrators", query=query)
-        results = await self.search(query)
+        results = await self.search(query, category="narrators_artists")
         return [item for item in results.items if item.item_type == "narrator"]
 
     async def get_category_feed(self, category: str) -> FeedResponse:

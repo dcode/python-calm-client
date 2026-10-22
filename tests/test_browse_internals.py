@@ -677,9 +677,9 @@ async def test_narrators_sidebar_list_filter_and_open(client: MagicMock, player:
     ]
     tamara = PackItem.model_validate({"type": "narrator", "narrator_id": "n1", "title": "Tamara Levitt"})
 
-    async def _search(query: str = "narrator") -> list[PackItem]:
-        # the default catalog is capped; a name query hits the server and finds anyone
-        return catalog if query == "narrator" else [tamara] if "tam" in query.lower() else []
+    async def _search(query: str = "") -> list[PackItem]:
+        # the default (empty) query returns the capped catalog; a name query finds anyone
+        return catalog if not query else [tamara] if "tam" in query.lower() else []
 
     client.list_narrators.side_effect = _search
 
