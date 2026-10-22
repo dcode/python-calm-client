@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
+from rich.cells import cell_len
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -35,6 +36,8 @@ log = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 
 CATEGORIES = DEFAULT_CATEGORIES
+# the feed pack the apps fill with the account's favorites
+FAVES_PACK = "faves"
 
 # Emoji fallbacks for items without images
 TYPE_EMOJI: dict[str, str] = {
@@ -97,7 +100,9 @@ class CategoryItem(ListItem):
 
     def compose(self) -> ComposeResult:
         """Render the category label."""
-        yield Label(f" {self.emoji}  {self.cat_name}")
+        # centre the icon in a fixed two-cell column so the names line up
+        icon = self.emoji.center(2) if cell_len(self.emoji) < 2 else self.emoji
+        yield Label(f" {icon}  {self.cat_name}")
 
 
 class CatalogCard(Static):
@@ -626,6 +631,8 @@ class BrowseApp(App):
                 self._load_category(item.slug, item.cat_name)
         elif isinstance(item, TrackItem) and self._current_program:
             self._play_track(item.track_index)
+        elif isinstance(pack_item := getattr(item, "item", None), PackItem):
+            self._open_item(pack_item)
 
     def on_catalog_card_selected(self, event: CatalogCard.Selected) -> None:
         """Handle card selection — drill into packs or items."""
@@ -633,7 +640,16 @@ class BrowseApp(App):
         if card.card_pack:
             self._drill_into_pack(card.card_pack)
         elif card.card_item:
-            self._current_item = card.card_item
+            self._open_item(card.card_item)
+
+    def _open_item(self, item: PackItem) -> None:
+        """Open a sub-feed or sub-pack entry, or play a guide or program."""
+        if item.item_type == "feed" and item.feed_id:
+            self._load_category(item.feed_id, item.title)
+        elif item.item_type == "pack" and item.pack_class:
+            self._drill_into_pack(Pack(title=item.title, pack_class=item.pack_class, has_more=True))
+        else:
+            self._current_item = item
             self._play_selected_item()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -787,10 +803,14 @@ class BrowseApp(App):
             title.update(feed.title or name)
             self.sub_title = feed.subtitle or f"Browse {name}"
 
-            packs = [p for p in feed.packs if p.items or "faves" in p.pack_class]
+            # Packs the apps fill in themselves arrive empty; of those, only favorites
+            # has an endpoint the client can load (recently played and collections don't)
+            packs = [p for p in feed.packs if p.items or p.pack_class == FAVES_PACK]
             emoji = TYPE_EMOJI.get(slug, "📋")
 
             for pack in packs:
+                # untitled packs (the navigation row, today's Daily Calm banner) only describe themselves
+                pack.title = pack.title or pack.content_description or ""
                 # Use first item's image if available
                 img_url = ""
                 if pack.items:
@@ -803,7 +823,13 @@ class BrowseApp(App):
                 card = CatalogCard(
                     title=pack.title,
                     # the feed only previews the pack; the full count is known once it's opened
-                    subtitle=f"{count}+ items" if pack.has_more and pack.items else f"{count} items",
+                    subtitle=(
+                        "Your favorites"
+                        if pack.pack_class == FAVES_PACK
+                        else f"{count}+ items"
+                        if pack.has_more and pack.items
+                        else f"{count} items"
+                    ),
                     emoji=emoji,
                     pack=pack,
                 )
@@ -831,6 +857,9 @@ class BrowseApp(App):
         Feeds embed only a preview of each pack, so the preview is shown straight away
         and the full pack is loaded in the background.
         """
+        if pack.pack_class == FAVES_PACK:
+            self._load_all_favorites()
+            return
         full = self._pack_cache.get(pack.pack_class)
         self._show_pack(full or pack)
         if full is None and pack.has_more and pack.pack_class:
@@ -909,8 +938,7 @@ class BrowseApp(App):
         # If on a card, try to play it
         focused = self.focused
         if isinstance(focused, CatalogCard) and focused.card_item:
-            self._current_item = focused.card_item
-            self._play_selected_item()
+            self._open_item(focused.card_item)
         elif isinstance(focused, CatalogCard) and focused.card_pack:
             # Drill into the pack first
             self._drill_into_pack(focused.card_pack)
@@ -920,8 +948,7 @@ class BrowseApp(App):
             if track_list.highlighted_child is not None:
                 li = track_list.highlighted_child
                 if hasattr(li, "item"):
-                    self._current_item = li.item  # type: ignore[attr-defined]
-                    self._play_selected_item()
+                    self._open_item(li.item)  # type: ignore[attr-defined]
 
     @work(exclusive=True, group="playback")
     async def _play_selected_item(self) -> None:
@@ -948,14 +975,16 @@ class BrowseApp(App):
             self.notify("No audio tracks found", severity="warning")
             return
 
+        # a guide entry (e.g. today's Daily Calm) starts at that guide, not the program's first
+        index = next((i for i, g in enumerate(program.guides) if g.id == item.guide_id), 0)
         self._current_program = program
-        self._current_track_index = 0
+        self._current_track_index = index
 
         # Fetch art for the player
         if item.image and item.image.url:
             self._fetch_player_art(item.image.url)
 
-        self._play_track(0)
+        self._play_track(index)
 
     def _play_track(self, index: int) -> None:
         """Play a specific track from the current program."""
