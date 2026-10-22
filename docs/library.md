@@ -108,6 +108,9 @@ The library uses Pydantic models for type safety:
     and packs).
 - `Pack` / `PackItem`: A row of a feed and its entries.
 - `SearchItem`: A result from a search query (the same shape as a `PackItem`).
+- `PackItem.media_type` is `FOLDER` for sub-feeds, sub-packs and narrators/artists, and
+    `PackItem.path` is the `browse()` path to open next (a narrator resolves to
+    `feed/narrator-<id>`). `Pack.has_content` tells whether a row has anything to open.
 - `Playlist` / `PlaylistItem`: A user playlist and its entries. Items hold only
     `guide_id`/`program_id`; resolve them with `get_guide`. `image_url` gives the cover.
 

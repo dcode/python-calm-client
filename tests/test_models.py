@@ -128,3 +128,24 @@ def test_feed_tag_path() -> None:
 def test_pack_has_playable_items() -> None:
     assert Pack(items=[PackItem.model_validate({"type": "guide", "guide_id": "g"})]).has_playable_items
     assert not Pack(items=[PackItem.model_validate({"type": "promo"})]).has_playable_items
+
+
+def test_narrator_item_is_a_browsable_folder() -> None:
+    item = PackItem.model_validate({"type": "narrator", "narrator_id": "VkYG-ZSmX", "title": "Tamara Levitt"})
+    assert item.media_type is MediaType.FOLDER
+    assert item.path == "feed/narrator-VkYG-ZSmX"
+
+
+def test_pack_has_content_vs_playable() -> None:
+    # a row of only links/breathe/text has nothing to open
+    links = Pack(items=[PackItem.model_validate({"type": "url"}), PackItem.model_validate({"type": "breathe_bubble"})])
+    assert not links.has_content
+    assert not links.has_playable_items
+    # a navigation row of sub-feeds is browsable but has nothing directly playable
+    nav = Pack(items=[PackItem.model_validate({"type": "feed", "feed_id": "sleep"})])
+    assert nav.has_content
+    assert not nav.has_playable_items
+    # a guide row is both
+    guides = Pack(items=[PackItem.model_validate({"type": "guide", "guide_id": "g"})])
+    assert guides.has_content
+    assert guides.has_playable_items

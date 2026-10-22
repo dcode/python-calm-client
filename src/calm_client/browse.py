@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import io
 import logging
+import textwrap
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
@@ -23,7 +24,7 @@ from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, ProgressBar, Static
 
 from .client import DEFAULT_CATEGORIES
-from .models import FeedResponse, Guide, Pack, PackItem, PackItemAsset, Playlist, Program
+from .models import FeedResponse, Guide, MediaType, Pack, PackItem, PackItemAsset, Playlist, Program
 
 if TYPE_CHECKING:
     from .client import CalmClient
@@ -38,6 +39,19 @@ log = logging.getLogger(__name__)
 CATEGORIES = DEFAULT_CATEGORIES
 # the feed pack the apps fill with the account's favorites
 FAVES_PACK = "faves"
+
+
+def _wrap(text: str, width: int, *, max_lines: int) -> list[str]:
+    """Wrap text to at most max_lines, ellipsizing the last line when it overflows."""
+    width = max(width, 4)
+    lines = textwrap.wrap(text, width=width) or [""]
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last = lines[-1]
+        lines[-1] = (last[: width - 1].rstrip() + "…") if len(last) >= width - 1 else last + "…"
+    return lines
+
+
 # the feed pack the apps fill with the user's playlists ("My Collections")
 COLLECTIONS_PACK = "faves-collections"
 # sentinel pack_class prefix for a single playlist's track listing
@@ -158,10 +172,19 @@ class CatalogCard(Static):
             label = self.query_one("#card-content", Label)
         except Exception:
             return  # Card removed from DOM before art arrived
-        title = self.card_title[:20]
-        sub = f"\n[dim]{self.card_subtitle[:20]}[/dim]" if self.card_subtitle else ""
-        emoji = f"\n{self.card_emoji}" if not self._art_renderable else ""
-        label.update(f"{emoji}\n[bold]{title}[/bold]{sub}")
+        # wrap to the card's inner width; fall back before the first layout pass
+        width = self.content_size.width or 18
+        title = "\n".join(_wrap(self.card_title, width, max_lines=2))
+        parts = [self.card_emoji] if not self._art_renderable else []
+        parts.append(f"[bold]{title}[/bold]")
+        if self.card_subtitle:
+            sub = "\n".join(_wrap(self.card_subtitle, width, max_lines=1))
+            parts.append(f"[dim]{sub}[/dim]")
+        label.update("\n".join(parts))
+
+    def on_resize(self) -> None:
+        """Re-wrap card text when the column width changes."""
+        self._render_card()
 
     def on_click(self) -> None:
         """Handle click on the card."""
@@ -649,14 +672,20 @@ class BrowseApp(App):
             self._open_item(card.card_item)
 
     def _open_item(self, item: PackItem) -> None:
-        """Open a sub-feed or sub-pack entry, or play a guide or program."""
-        if item.item_type == "feed" and item.feed_id:
-            self._load_category(item.feed_id, item.title)
-        elif item.item_type == "pack" and item.pack_class:
-            self._drill_into_pack(Pack(title=item.title, pack_class=item.pack_class, has_more=True))
-        else:
+        """Open a folder (sub-feed, sub-pack or narrator), or play a guide or program."""
+        # folders carry a browse path: feed/<id>, pack/<class>, or feed/narrator-<id>
+        if path := item.path:
+            kind, _, ident = path.partition("/")
+            if kind == "feed":
+                self._load_category(ident, item.title)
+            else:
+                self._drill_into_pack(Pack(title=item.title, pack_class=ident, has_more=True))
+        elif item.media_type in (MediaType.TRACK, MediaType.ALBUM):
             self._current_item = item
             self._play_selected_item()
+        else:
+            # breathe bubbles, link cards, and other non-audio entries aren't playable here
+            self.notify(f"'{item.title}' has no audio to play", severity="warning")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle search input submission."""
@@ -710,25 +739,18 @@ class BrowseApp(App):
             grid.query(CatalogCard).remove()
 
             for res in results.items:
-                item = PackItem(
-                    program_id=res.program_id,
-                    content_id=res.content_id,
-                    title=res.title,
-                    subtitle=res.subtitle,
-                    item_type=res.item_type,  # type: ignore[call-arg]
-                    narrator_name=res.narrator_name,
-                    search_category=res.search_category,
-                    is_new=res.is_new,
-                    is_unlocked=res.is_unlocked,
-                )
+                # res is a SearchItem (a PackItem), so pass it straight through — this keeps
+                # guide_id, narrator_id, image, etc. so guides, programs and narrators all open
                 emoji = TYPE_EMOJI.get((res.search_category or "").lower(), "🔍")
                 card = CatalogCard(
-                    title=item.title,
-                    subtitle=item.narrator_name or item.subtitle or "",
+                    title=res.title,
+                    subtitle=res.narrator_name or res.subtitle or "",
                     emoji=emoji,
-                    item=item,
+                    item=res,
                 )
                 await grid.mount(card)
+                if res.image and res.image.url:
+                    self._fetch_card_art(card, res.image.url)
 
         except Exception as e:
             title.update(f"Error: {e}")
@@ -889,7 +911,8 @@ class BrowseApp(App):
             # Packs the apps fill in themselves arrive empty; of those, favorites and
             # collections have endpoints the client can load (recently played does not)
             client_packs = (FAVES_PACK, COLLECTIONS_PACK)
-            packs = [p for p in feed.packs if p.items or p.pack_class in client_packs]
+            # keep only rows with playable content; drop link-only rows like "Resources"
+            packs = [p for p in feed.packs if p.pack_class in client_packs or p.has_content]
             # favorites first, then collections, as in the apps
             order = {FAVES_PACK: 0, COLLECTIONS_PACK: 1}
             packs.sort(key=lambda p: order.get(p.pack_class, 2))
@@ -1053,9 +1076,11 @@ class BrowseApp(App):
             self.notify("No item selected", severity="warning")
             return
 
-        program_id = item.program_id or item.content_id
+        # only program_id resolves to a playable program; content_id can be a non-program
+        # ref (e.g. a breathe bubble), which 404s the program endpoint
+        program_id = item.program_id
         if not program_id:
-            self.notify("Item has no ID", severity="error")
+            self.notify(f"'{item.title}' has no audio to play", severity="warning")
             return
 
         self.notify(f"Loading {item.title}...", severity="information")

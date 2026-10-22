@@ -38,6 +38,7 @@ def _guide(guide_id: str, url: str | None = "u", duration: float = 125) -> Guide
 ITEM = PackItem(
     title="Rain Story",
     program_id="p1",
+    item_type="program",
     narrator_name="Narrator",
     image=ImageAsset(url="http://img/item.png"),
 )
@@ -257,7 +258,7 @@ async def test_play_selected_item_paths(client: MagicMock, player: MagicMock) ->
             notify.assert_called_with("No item selected", severity="warning")
 
             await play(PackItem(title="No id"))
-            notify.assert_called_with("Item has no ID", severity="error")
+            notify.assert_called_with("'No id' has no audio to play", severity="warning")
 
             client.get_program.side_effect = RuntimeError("offline")
             await play(ITEM)
@@ -413,9 +414,12 @@ def _track_titles(app: BrowseApp) -> list[str]:
 
 @pytest.mark.asyncio
 async def test_pack_loads_beyond_feed_preview(client: MagicMock, player: MagicMock) -> None:
-    preview = Pack(title="Fiction", pack_class="fiction", has_more=True, items=[PackItem(title="Story 1")])
-    full = Pack(pack_class="fiction", items=[PackItem(title=f"Story {i}") for i in range(1, 13)])
-    complete = Pack(title="Naps", pack_class="naps", items=[PackItem(title="Nap")])
+    def _story(n: int) -> PackItem:
+        return PackItem(title=f"Story {n}", item_type="guide", guide_id=f"g{n}", program_id="p")
+
+    preview = Pack(title="Fiction", pack_class="fiction", has_more=True, items=[_story(1)])
+    full = Pack(pack_class="fiction", items=[_story(i) for i in range(1, 13)])
+    complete = Pack(title="Naps", pack_class="naps", items=[PackItem(title="Nap", item_type="guide", guide_id="n1")])
     client.get_category_feed.return_value = FeedResponse(title="Sleep", packs=[preview, complete])
     client.get_pack.return_value = full
 
@@ -446,7 +450,12 @@ async def test_pack_loads_beyond_feed_preview(client: MagicMock, player: MagicMo
 
 @pytest.mark.asyncio
 async def test_pack_full_load_failures(client: MagicMock, player: MagicMock) -> None:
-    preview = Pack(title="Fiction", pack_class="fiction", has_more=True, items=[PackItem(title="Story 1")])
+    preview = Pack(
+        title="Fiction",
+        pack_class="fiction",
+        has_more=True,
+        items=[PackItem(title="Story 1", item_type="guide", guide_id="g1", program_id="p")],
+    )
     app = BrowseApp(client)
     async with app.run_test() as pilot:
         with patch.object(app, "_fetch_header_art"), patch.object(app, "notify") as notify:
@@ -604,3 +613,56 @@ async def test_collections_load_and_hydrate(client: MagicMock, player: MagicMock
             app._drill_into_pack(pack)
             await app.workers.wait_for_complete()
             assert client.get_guide.await_count == 2
+
+
+def test_card_wraps_long_title_without_stray_newline() -> None:
+    from calm_client.browse import CatalogCard
+
+    card = CatalogCard(title="Sound Therapy for Sleep", subtitle="13 items", emoji="≡")
+    lines = browse._wrap(card.card_title, 18, max_lines=2)
+    assert 1 <= len(lines) <= 2
+    assert all(len(line) <= 18 for line in lines)
+    # a very long title is ellipsized on the last line
+    long = browse._wrap("A" * 80, 18, max_lines=2)
+    assert len(long) == 2
+    assert long[-1].endswith("…")
+
+
+@pytest.mark.asyncio
+async def test_resources_and_other_non_content_rows_are_hidden(client: MagicMock, player: MagicMock) -> None:
+    feed = FeedResponse(
+        title="For Work",
+        packs=[
+            Pack(
+                title="Meditations",
+                pack_class="m",
+                items=[PackItem.model_validate({"type": "guide", "guide_id": "g"})],
+            ),
+            Pack(title="Resources", pack_class="work-resources", items=[PackItem.model_validate({"type": "url"})]),
+        ],
+    )
+    client.get_category_feed.return_value = feed
+    app = BrowseApp(client)
+    async with app.run_test():
+        with patch.object(app, "_fetch_card_art"):
+            app._load_category("collection-calm-for-work", "For Work")
+            await app.workers.wait_for_complete()
+            titles = [c.card_title for c in app.query(CatalogCard)]
+    assert titles == ["Meditations"]
+
+
+@pytest.mark.asyncio
+async def test_open_narrator_item_loads_its_feed(client: MagicMock, player: MagicMock) -> None:
+    narrator = PackItem.model_validate({"type": "narrator", "narrator_id": "VkYG-ZSmX", "title": "Tamara Levitt"})
+    app = BrowseApp(client)
+    async with app.run_test():
+        with patch.object(app, "_load_category") as load_category:
+            app._open_item(narrator)
+    load_category.assert_called_once_with("narrator-VkYG-ZSmX", "Tamara Levitt")
+
+
+def test_breathe_removed_from_categories() -> None:
+    slugs = [slug for slug, _, _ in browse.CATEGORIES]
+    assert "breathe" not in slugs
+    assert "collection-calm-for-work" in slugs
+    assert "collection-calm-for-kids" in slugs
