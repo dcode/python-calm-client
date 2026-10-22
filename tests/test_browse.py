@@ -420,6 +420,7 @@ async def test_player_auto_advance(mock_client: MagicMock, mock_player: MagicMoc
     )
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
+        await pilot.pause()  # let the app finish mounting (#now-playing-bar) before acting
         app._current_program = prog
         app._current_track_index = 0
         app._player = mock_player
