@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.1] — 2026-10-22
+
+### Added
+
+- `CalmClient.list_narrators()` returns the narrators and artists catalog (Calm has no
+  narrator index; this searches `narrator`, which Calm answers with the full list).
+- `calm browse` has a **Narrators & Artists** sidebar entry: a fast name list (not an
+  art grid) with type-to-filter and A/B/C section headers; selecting one opens that
+  narrator's feed.
+
+### Changed
+
+- Album-art downloads in the browse grid are capped at 6 concurrent, so large packs no
+  longer open hundreds of connections at once.
+
 ## [0.2.0] — 2026-10-22
 
 ### Added

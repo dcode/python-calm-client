@@ -63,6 +63,8 @@ CalmClient(credentials: Credentials | str | None = None)
     lock flags without the program details.
 - `get_favorites() -> list[PackItem]`: Get user's favorite items.
 - `get_playlists() -> list[Playlist]`: Get the user's playlists ("My Collections").
+- `list_narrators() -> list[SearchItem]`: List narrators and artists (each a `FOLDER`
+    item whose `path` opens the narrator's feed).
 - `add_fave(*, guide_id=.. | program_id=.. | feed_id=.. | pack_class=.. | content_id=..)`
     and `remove_fave(...)`: favorite or unfavorite one item. Guides use the
     `programs/guides/<id>/faves` endpoint; everything else uses `/faves`.

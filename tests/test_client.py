@@ -505,3 +505,27 @@ async def test_fave_requires_exactly_one_id() -> None:
             await client.add_fave()
         with pytest.raises(ValueError, match="exactly one"):
             await client.add_fave(guide_id="g", program_id="p")
+
+
+@pytest.mark.asyncio
+async def test_list_narrators(respx_mock: Any) -> None:
+    respx_mock.get(f"{API}/search/v2").mock(
+        return_value=Response(
+            200,
+            json={
+                "pack": {
+                    "items": [
+                        {"type": "narrator", "narrator_id": "n1", "title": "Tamara Levitt", "content_type": "Narrator"},
+                        {"type": "narrator", "narrator_id": "a1", "title": "Alanis", "content_type": "Artist"},
+                        {"type": "program", "program_id": "p1", "title": "A meditation"},
+                    ]
+                }
+            },
+        )
+    )
+    async with CalmClient("token") as client:
+        narrators = await client.list_narrators()
+    assert [n.title for n in narrators] == ["Tamara Levitt", "Alanis"]
+    assert all(n.media_type is MediaType.FOLDER for n in narrators)
+    assert narrators[0].path == "feed/narrator-n1"
+    assert respx_mock.calls.last.request.url.params["query"] == "narrator"
