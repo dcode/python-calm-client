@@ -11,8 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `CalmClient.list_narrators()` returns the narrators and artists catalog (Calm has no
   narrator index; this searches `narrator`, which Calm answers with the full list).
 - `calm browse` has a **Narrators & Artists** sidebar entry: a fast name list (not an
-  art grid) with type-to-filter and A/B/C section headers; selecting one opens that
-  narrator's feed.
+  art grid) with A/B/C section headers; selecting one opens that narrator's feed. The
+  filter box searches server-side, so you can find any narrator by name even though
+  Calm's search only returns a capped starter page (~200, alphabetical) up front.
 
 ### Changed
 

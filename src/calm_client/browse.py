@@ -540,8 +540,6 @@ class BrowseApp(App):
         self._pack_cache: dict[str, Pack] = {}
         # resolved guides by id, so playlist hydration doesn't refetch
         self._guide_cache: dict[str, tuple[Guide, Program]] = {}
-        # narrators/artists, fetched once and filtered in-memory
-        self._narrators: list[SearchItem] = []
         # cap concurrent album-art downloads so a big grid doesn't fire hundreds at once
         self._art_semaphore = asyncio.Semaphore(6)
         self._current_category: str = ""
@@ -931,35 +929,18 @@ class BrowseApp(App):
         if changed and self._view == "tracks" and self._current_pack is pack:
             self._show_pack(pack)
 
-    @work(exclusive=True, group="narrators-load")
-    async def _load_narrators(self) -> None:
-        """Fetch the narrators/artists catalog and show it as a filterable name list."""
+    def _load_narrators(self) -> None:
+        """Open the Narrators & Artists view and load the starter catalog."""
         self._switch_to_narrators()
-        title = self.query_one("#narrator-title", Static)
-        listview = self.query_one("#narrator-list", ListView)
-        await listview.clear()
         self.query_one("#narrator-filter", Input).value = ""
-        title.update("⏳ Loading Narrators & Artists...")
-
-        if not self._narrators:
-            try:
-                self._narrators = await self._client.list_narrators()
-            except Exception as e:
-                self.notify(f"Error loading narrators: {e}", severity="error")
-                title.update("Error loading narrators")
-                return
-
-        title.update(f"🎙  Narrators & Artists ({len(self._narrators)})")
-        self._populate_narrators("")
+        self._search_narrators("")
         with contextlib.suppress(Exception):
             self.query_one("#narrator-filter", Input).focus()
 
-    def _populate_narrators(self, query: str) -> None:
-        """Fill the narrator list, filtered by name, with A/B/C section headers."""
-        listview = self.query_one("#narrator-list", ListView)
-        listview.clear()
-        needle = query.strip().lower()
-        matches = [n for n in self._narrators if needle in n.title.lower()]
+    @staticmethod
+    def _narrator_rows(matches: list[SearchItem]) -> list[ListItem]:
+        """Build list rows for the given narrators, with A/B/C section headers."""
+        rows: list[ListItem] = []
         current_letter = ""
         for narrator in matches:
             first = narrator.title[:1].upper()
@@ -968,15 +949,44 @@ class BrowseApp(App):
                 current_letter = letter
                 header = ListItem(Label(f"— {letter} —", classes="narrator-header"))
                 header.disabled = True  # a non-selectable section divider
-                self.call_after_refresh(listview.append, header)
+                rows.append(header)
             row = ListItem(Label(narrator.title))
             row.item = narrator  # type: ignore[attr-defined]
-            self.call_after_refresh(listview.append, row)
+            rows.append(row)
+        return rows
+
+    @work(exclusive=True, group="narrators-search")
+    async def _search_narrators(self, query: str) -> None:
+        """Search narrators server-side (the catalog is larger than one search page).
+
+        Exclusive + a short debounce so rapid typing only runs the final query.
+        """
+        title = self.query_one("#narrator-title", Static)
+        listview = self.query_one("#narrator-list", ListView)
+        needle = query.strip()
+        if needle:
+            await asyncio.sleep(0.3)  # debounce; a newer keystroke cancels this worker
+        title.update(f"⏳ Searching '{needle}'..." if needle else "⏳ Loading Narrators & Artists...")
+
+        try:
+            narrators = await self._client.list_narrators(needle or "narrator")
+        except Exception as e:
+            self.notify(f"Error loading narrators: {e}", severity="error")
+            title.update("Error loading narrators")
+            return
+
+        if needle:
+            title.update(f"🎙  Narrators & Artists — {len(narrators)} for '{needle}'")
+        else:
+            title.update(f"🎙  Narrators & Artists ({len(narrators)}+) — type to search")
+        await listview.clear()
+        if narrators:
+            await listview.extend(self._narrator_rows(narrators))
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Live-filter the narrator list as the user types."""
+        """Search narrators server-side as the user types."""
         if event.input.id == "narrator-filter":
-            self._populate_narrators(event.value)
+            self._search_narrators(event.value)
 
     # ------------------------------------------------------------------
     # Category loading
