@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import Response
 from PIL import Image
-from textual.widgets import Label, ListView, ProgressBar, Static
+from textual.widgets import Input, Label, ListView, ProgressBar, Static
 
 from calm_client import browse
 from calm_client.browse import BrowseApp, CatalogCard, NowPlayingBar, TrackItem, _resize_image, run_browse
@@ -671,11 +671,18 @@ def test_breathe_removed_from_categories() -> None:
 
 @pytest.mark.asyncio
 async def test_narrators_sidebar_list_filter_and_open(client: MagicMock, player: MagicMock) -> None:
-    client.list_narrators.return_value = [
-        PackItem.model_validate({"type": "narrator", "narrator_id": "n1", "title": "Tamara Levitt"}),
+    catalog = [
         PackItem.model_validate({"type": "narrator", "narrator_id": "a1", "title": "Alanis Morissette"}),
         PackItem.model_validate({"type": "narrator", "narrator_id": "b1", "title": "Bob Ross"}),
     ]
+    tamara = PackItem.model_validate({"type": "narrator", "narrator_id": "n1", "title": "Tamara Levitt"})
+
+    async def _search(query: str = "narrator") -> list[PackItem]:
+        # the default catalog is capped; a name query hits the server and finds anyone
+        return catalog if query == "narrator" else [tamara] if "tam" in query.lower() else []
+
+    client.list_narrators.side_effect = _search
+
     app = BrowseApp(client)
     async with app.run_test() as pilot:
         app._load_narrators()
@@ -683,19 +690,20 @@ async def test_narrators_sidebar_list_filter_and_open(client: MagicMock, player:
         await pilot.pause()
         listview = app.query_one("#narrator-list", ListView)
         rows = [str(i.query_one(Label).render()) for i in listview.query("ListItem")]
-        # alphabetical with letter-section headers; names present
-        assert "— A —" in rows and "— B —" in rows and "— T —" in rows
-        assert any("Tamara Levitt" in r for r in rows)
+        assert "— A —" in rows and "— B —" in rows  # letter-section headers
+        assert [r for r in rows if not r.startswith("—")] == ["Alanis Morissette", "Bob Ross"]
 
-        # live filter narrows the list
-        app._populate_narrators("bob")
+        # typing searches the server, so a narrator past the capped page is still found
+        app.query_one("#narrator-filter", Input).value = "tamara"
+        await pilot.pause()  # process Input.Changed so the search worker starts
+        await app.workers.wait_for_complete()
         await pilot.pause()
         names = [str(i.query_one(Label).render()) for i in listview.query("ListItem") if not i.disabled]
-        assert names == ["Bob Ross"]
+        assert names == ["Tamara Levitt"]
 
         # opening a narrator loads its feed
         with patch.object(app, "_load_category") as load_category:
-            app._open_item(client.list_narrators.return_value[0])
+            app._open_item(tamara)
         load_category.assert_called_once_with("narrator-n1", "Tamara Levitt")
 
 
