@@ -528,4 +528,20 @@ async def test_list_narrators(respx_mock: Any) -> None:
     assert [n.title for n in narrators] == ["Tamara Levitt", "Alanis"]
     assert all(n.media_type is MediaType.FOLDER for n in narrators)
     assert narrators[0].path == "feed/narrator-n1"
-    assert respx_mock.calls.last.request.url.params["query"] == "narrator"
+    # scoped to the narrators_artists category; empty query returns the starter catalog
+    params = respx_mock.calls.last.request.url.params
+    assert params["category"] == "narrators_artists"
+    assert params["query"] == ""
+
+
+@pytest.mark.asyncio
+async def test_search_category_and_duration_params(respx_mock: Any) -> None:
+    route = respx_mock.get(f"{API}/search/v2").mock(return_value=Response(200, json={"pack": {"items": []}}))
+    async with CalmClient("token") as client:
+        await client.search("rain", category="soundscapes", duration="ten_min")
+        p = route.calls.last.request.url.params
+        assert p["query"] == "rain" and p["category"] == "soundscapes" and p["duration"] == "ten_min"
+        # omitted filters aren't sent
+        await client.search("rain")
+        p2 = route.calls.last.request.url.params
+        assert "category" not in p2 and "duration" not in p2

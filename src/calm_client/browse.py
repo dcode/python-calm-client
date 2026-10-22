@@ -969,7 +969,7 @@ class BrowseApp(App):
         title.update(f"⏳ Searching '{needle}'..." if needle else "⏳ Loading Narrators & Artists...")
 
         try:
-            narrators = await self._client.list_narrators(needle or "narrator")
+            narrators = await self._client.list_narrators(needle)
         except Exception as e:
             self.notify(f"Error loading narrators: {e}", severity="error")
             title.update("Error loading narrators")
