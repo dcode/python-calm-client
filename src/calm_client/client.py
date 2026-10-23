@@ -8,7 +8,7 @@ import httpx
 
 from calm_client.auth import AuthStrategy, auth_for
 from calm_client.credentials import Credentials
-from calm_client.exceptions import CalmAPIError, CalmAuthError
+from calm_client.exceptions import CalmAPIError, CalmAuthError, CalmRateLimitError
 from calm_client.logging import logger as logger
 from calm_client.models import (
     Feed,
@@ -280,6 +280,8 @@ class CalmClient:
             )
             if e.response.status_code == 401:
                 raise CalmAuthError("Invalid or expired token") from e
+            if e.response.status_code == 429:
+                raise CalmRateLimitError(f"Rate limited: {e}", retry_after=_retry_after(e.response)) from e
             raise CalmAPIError(f"API Error: {e}") from e
 
     async def get_feed(self, category: str) -> Feed:
@@ -492,3 +494,11 @@ class CalmClient:
     ) -> None:
         """Exit the async context manager and close the client."""
         await self.close()
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    """Return the ``Retry-After`` wait in seconds, or None when absent or not a number."""
+    try:
+        return max(0.0, float(response.headers["Retry-After"]))
+    except (KeyError, ValueError):
+        return None
