@@ -4,7 +4,15 @@ import httpx
 import pytest
 from httpx import Response
 
-from calm_client import CalmAPIError, CalmAuthError, CalmClient, Credentials, MediaType, is_available
+from calm_client import (
+    CalmAPIError,
+    CalmAuthError,
+    CalmClient,
+    CalmRateLimitError,
+    Credentials,
+    MediaType,
+    is_available,
+)
 
 
 @pytest.mark.asyncio
@@ -545,3 +553,20 @@ async def test_search_category_and_duration_params(respx_mock: Any) -> None:
         await client.search("rain")
         p2 = route.calls.last.request.url.params
         assert "category" not in p2 and "duration" not in p2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [({"Retry-After": "7"}, 7.0), ({"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}, None), ({}, None)],
+)
+async def test_429_raises_rate_limit_error(respx_mock: Any, headers: dict[str, str], expected: float | None) -> None:
+    respx_mock.get("https://www.calm.com/webapi/authproxy/packs/feeds/sleep").mock(
+        return_value=Response(429, headers=headers)
+    )
+    async with CalmClient(Credentials(token="t")) as client:
+        with pytest.raises(CalmRateLimitError) as excinfo:
+            await client.get_feed("sleep")
+    assert excinfo.value.retry_after == expected
+    # still an API error for callers that do not care about the difference
+    assert isinstance(excinfo.value, CalmAPIError)

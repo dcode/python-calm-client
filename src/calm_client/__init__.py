@@ -3,7 +3,7 @@
 from .auth import AuthStrategy, BearerAuth, CookieAuth
 from .client import CalmClient
 from .credentials import Credentials
-from .exceptions import CalmAPIError, CalmAuthError
+from .exceptions import CalmAPIError, CalmAuthError, CalmRateLimitError
 from .models import (
     Feed,
     FeedResponse,
@@ -29,6 +29,7 @@ __all__ = [
     "CalmAPIError",
     "CalmAuthError",
     "CalmClient",
+    "CalmRateLimitError",
     "CookieAuth",
     "Credentials",
     "Feed",
