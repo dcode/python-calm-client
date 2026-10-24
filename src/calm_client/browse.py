@@ -211,9 +211,8 @@ class TrackItem(ListItem):
         """Render the track entry."""
         marker = "▶ " if self._is_current else "  "
         dur = ""
-        if self.guide.assets:
-            secs = int(self.guide.assets[0].duration)
-            m, s = divmod(secs, 60)
+        if self.guide.duration > 0:
+            m, s = divmod(int(self.guide.duration), 60)
             dur = f" · {m}:{s:02d}"
         yield Label(f"{marker}{self.track_index + 1}. {self.guide.title}{dur}")
 
@@ -795,13 +794,13 @@ class BrowseApp(App):
                 emoji = TYPE_EMOJI.get((res.search_category or "").lower(), "🔍")
                 card = CatalogCard(
                     title=res.title,
-                    subtitle=res.narrator_name or res.subtitle or "",
+                    subtitle=res.display_subtitle,
                     emoji=emoji,
                     item=res,
                 )
                 await grid.mount(card)
-                if res.image and res.image.url:
-                    self._fetch_card_art(card, res.image.url)
+                if res.image_url:
+                    self._fetch_card_art(card, res.image_url)
 
         except Exception as e:
             title.update(f"Error: {e}")
@@ -843,14 +842,14 @@ class BrowseApp(App):
             emoji = TYPE_EMOJI.get((fav.search_category or fav.item_type or "").lower(), "⭐")
             card = CatalogCard(
                 title=fav.title,
-                subtitle=fav.narrator_name or fav.subtitle or "",
+                subtitle=fav.display_subtitle,
                 emoji=emoji,
                 item=fav,
             )
             await grid.mount(card)
             # Fetch art in background
-            if fav.image and fav.image.url:
-                self._fetch_card_art(card, fav.image.url)
+            if fav.image_url:
+                self._fetch_card_art(card, fav.image_url)
 
     @work(exclusive=True, group="collections-load")
     async def _load_collections(self) -> None:
@@ -1035,8 +1034,8 @@ class BrowseApp(App):
                 img_url = ""
                 if pack.items:
                     for pi in pack.items:
-                        if pi.image and pi.image.url:
-                            img_url = pi.image.url
+                        if pi.image_url:
+                            img_url = pi.image_url
                             break
 
                 count = len(pack.items) if pack.items else pack.total_item_number
@@ -1140,8 +1139,8 @@ class BrowseApp(App):
         art_widget.update("")
         if pack.items:
             for pi in pack.items:
-                if pi.image and pi.image.url:
-                    self._fetch_header_art(art_widget, pi.image.url)
+                if pi.image_url:
+                    self._fetch_header_art(art_widget, pi.image_url)
                     break
 
         # Populate track list as content items
@@ -1211,8 +1210,8 @@ class BrowseApp(App):
         self._current_track_index = index
 
         # Fetch art for the player
-        if item.image and item.image.url:
-            self._fetch_player_art(item.image.url)
+        if item.image_url:
+            self._fetch_player_art(item.image_url)
 
         self._play_track(index)
 
