@@ -21,6 +21,7 @@ from calm_client.client import CalmClient
 from calm_client.credentials import Credentials
 from calm_client.exceptions import CalmAuthError
 from calm_client.logging import configure_logging
+from calm_client.models import AudioQuality
 
 if TYPE_CHECKING:
     from .models import Program
@@ -259,12 +260,14 @@ def search(query: Annotated[str, cyclopts.Parameter(name="query")]) -> None:
 
 
 @app.command
-def play(program_id: str, *, guide: int = 0) -> None:
+def play(program_id: str, *, guide: int = 0, quality: AudioQuality = AudioQuality.COMPACT) -> None:
     """Play audio from a Calm program.
 
     Args:
         program_id: The program ID (e.g. from search or browse).
         guide: Which guide/track index to play (0-indexed). Default: first.
+        quality: Audio format to prefer: compact (AAC, about 30 MB per 30 min),
+            balanced (Ogg Vorbis, about 50 MB) or highest (lossless WAV, about 500 MB).
     """
     from .play import run_play
 
@@ -300,7 +303,7 @@ def play(program_id: str, *, guide: int = 0) -> None:
         return
 
     track = program.guides[guide]
-    stream_url = track.stream_url
+    stream_url = track.stream_url_for(quality)
     if not stream_url:
         console.print("[red]No streamable audio found for this track.[/red]")
         return
@@ -311,12 +314,17 @@ def play(program_id: str, *, guide: int = 0) -> None:
     console.print()
 
     # Launch the play TUI
-    run_play(program, guide)
+    run_play(program, guide, quality)
 
 
 @app.command
-def browse() -> None:
-    """Browse the Calm catalog interactively."""
+def browse(*, quality: AudioQuality = AudioQuality.COMPACT) -> None:
+    """Browse the Calm catalog interactively.
+
+    Args:
+        quality: Audio format to prefer: compact (AAC, about 30 MB per 30 min),
+            balanced (Ogg Vorbis, about 50 MB) or highest (lossless WAV, about 500 MB).
+    """
     from .browse import run_browse
 
     creds = load_credentials()
@@ -325,7 +333,7 @@ def browse() -> None:
         return
 
     client = CalmClient(creds)
-    run_browse(client)
+    run_browse(client, quality)
 
 
 if __name__ == "__main__":

@@ -20,8 +20,42 @@ class MediaType(StrEnum):
     UNKNOWN = "unknown"  # promos, links, check-ins and other entries without audio
 
 
-# preferred audio formats, compressed first to save bandwidth
-_AUDIO_PREFERENCE = {"audio/mp4": 0, "audio/mpeg": 1, "audio/ogg": 2, "audio/wav": 3}
+class AudioQuality(StrEnum):
+    """Which audio format to prefer when a guide offers several.
+
+    Calm serves three formats: AAC at 128 kbps (about 30 MB per 30 minutes), Ogg Vorbis
+    at roughly 256 kbps (about 50 MB) and 24-bit WAV (about 500 MB).
+    """
+
+    COMPACT = "compact"  # smallest download: AAC first
+    BALANCED = "balanced"  # Vorbis first: better quality for modestly more data
+    HIGHEST = "highest"  # lossless WAV first when the guide has it
+
+
+# format ranking per quality; formats not listed rank last
+_AUDIO_PREFERENCE = {
+    AudioQuality.COMPACT: {"audio/mp4": 0, "audio/mpeg": 1, "audio/ogg": 2, "audio/wav": 3},
+    AudioQuality.BALANCED: {"audio/ogg": 0, "audio/mp4": 1, "audio/mpeg": 2, "audio/wav": 3},
+    AudioQuality.HIGHEST: {"audio/wav": 0, "audio/ogg": 1, "audio/mp4": 2, "audio/mpeg": 3},
+}
+
+# other spellings of the same formats seen in Calm responses or common elsewhere
+_AUDIO_ALIASES = {
+    "audio/wave": "audio/wav",
+    "audio/x-wav": "audio/wav",
+    "audio/vnd.wave": "audio/wav",
+    "audio/mp4a-latm": "audio/mp4",
+    "audio/x-m4a": "audio/mp4",
+    "audio/aac": "audio/mp4",
+    "audio/mp3": "audio/mpeg",
+    "audio/vorbis": "audio/ogg",
+}
+
+
+def _canonical_type(content_type: str) -> str:
+    """Return the canonical mime type: lowercase, without parameters, aliases resolved."""
+    base = content_type.split(";", 1)[0].strip().lower()
+    return _AUDIO_ALIASES.get(base, base)
 
 
 class Lockable(BaseModel):
@@ -68,10 +102,13 @@ class Asset(BaseModel):
     duration: float = 0.0
 
 
-def _best_audio[T: (Asset, PackItemAsset)](assets: Iterable[T]) -> T | None:
+def _best_audio[T: (Asset, PackItemAsset)](
+    assets: Iterable[T], quality: AudioQuality = AudioQuality.COMPACT
+) -> T | None:
     """Return the preferred audio asset, ignoring video and assets without a URL."""
-    audio = [a for a in assets if a.url and a.content_type.startswith("audio/")]
-    return min(audio, key=lambda a: _AUDIO_PREFERENCE.get(a.content_type, 9), default=None)
+    ranking = _AUDIO_PREFERENCE[quality]
+    audio = [a for a in assets if a.url and _canonical_type(a.content_type).startswith("audio/")]
+    return min(audio, key=lambda a: ranking.get(_canonical_type(a.content_type), 9), default=None)
 
 
 def _duration[T: (Asset, PackItemAsset)](assets: Iterable[T]) -> float:
@@ -95,12 +132,20 @@ class Guide(Lockable):
     @property
     def audio_asset(self) -> Asset | None:
         """Return the preferred audio asset (compressed formats over wav, never video)."""
-        return _best_audio(self.assets)
+        return self.pick_audio()
+
+    def pick_audio(self, quality: AudioQuality = AudioQuality.COMPACT) -> Asset | None:
+        """Return the audio asset that best matches ``quality``, never video."""
+        return _best_audio(self.assets, quality)
 
     @property
     def stream_url(self) -> str | None:
         """Return the URL of the preferred audio asset, else of the first asset."""
-        if asset := self.audio_asset:
+        return self.stream_url_for()
+
+    def stream_url_for(self, quality: AudioQuality = AudioQuality.COMPACT) -> str | None:
+        """Return the URL of the audio asset for ``quality``, else of the first asset."""
+        if asset := self.pick_audio(quality):
             return asset.url
         if not self.assets:
             return None
@@ -306,7 +351,11 @@ class PackItem(Lockable):
     @property
     def audio_asset(self) -> PackItemAsset | None:
         """Return the preferred audio asset (compressed formats over wav, never video)."""
-        return _best_audio(self.assets)
+        return self.pick_audio()
+
+    def pick_audio(self, quality: AudioQuality = AudioQuality.COMPACT) -> PackItemAsset | None:
+        """Return the audio asset that best matches ``quality``, never video."""
+        return _best_audio(self.assets, quality)
 
     @property
     def image_url(self) -> str | None:

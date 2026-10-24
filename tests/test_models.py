@@ -2,6 +2,7 @@ import pytest
 
 from calm_client.models import (
     Asset,
+    AudioQuality,
     FeedTag,
     Guide,
     ImageAsset,
@@ -196,3 +197,92 @@ def test_artist_without_an_id_and_narrator_image_url() -> None:
     assert Narrator(name="Jay").image_url is None
     assert Narrator(name="Jay", headshot=ImageAsset()).image_url is None
     assert Narrator(name="Jay", headshot=ImageAsset(url="h")).image_url == "h"
+
+
+ALL_FORMATS = [
+    {"url": "wav", "content_type": "audio/wav", "duration": 60},
+    {"url": "mp3", "content_type": "audio/mpeg", "duration": 60},
+    {"url": "m4a", "content_type": "audio/mp4", "duration": 60},
+    {"url": "video", "content_type": "video/mp4", "duration": 60},
+]
+
+
+def test_pick_audio_compact_prefers_compressed_formats() -> None:
+    guide = Guide.model_validate({"id": "g", "title": "t", "assets": ALL_FORMATS})
+    assert guide.pick_audio().url == "m4a"
+    assert guide.pick_audio(AudioQuality.COMPACT).url == "m4a"
+    assert guide.audio_asset.url == "m4a"
+    assert guide.stream_url == "m4a"
+
+
+def test_pick_audio_highest_prefers_wav_and_falls_back() -> None:
+    guide = Guide.model_validate({"id": "g", "title": "t", "assets": ALL_FORMATS})
+    assert guide.pick_audio(AudioQuality.HIGHEST).url == "wav"
+    assert guide.stream_url_for(AudioQuality.HIGHEST) == "wav"
+    without_wav = Guide.model_validate({"id": "g", "title": "t", "assets": ALL_FORMATS[1:]})
+    assert without_wav.pick_audio(AudioQuality.HIGHEST).url == "m4a"
+
+
+def test_pick_audio_never_returns_video_and_stream_url_falls_back_to_first_asset() -> None:
+    video_only = Guide.model_validate({"id": "g", "title": "t", "assets": ALL_FORMATS[-1:]})
+    assert video_only.pick_audio(AudioQuality.HIGHEST) is None
+    assert video_only.stream_url_for(AudioQuality.HIGHEST) == "video"
+    assert Guide(id="g", title="t").stream_url_for(AudioQuality.HIGHEST) is None
+
+
+def test_pack_item_pick_audio_follows_quality() -> None:
+    item = PackItem.model_validate({"assets": ALL_FORMATS})
+    assert item.pick_audio().url == "m4a"
+    assert item.pick_audio(AudioQuality.HIGHEST).url == "wav"
+    assert PackItem().pick_audio(AudioQuality.HIGHEST) is None
+
+
+def test_pick_audio_balanced_prefers_vorbis() -> None:
+    ogg = {"url": "oga", "content_type": "audio/ogg", "duration": 60}
+    guide = Guide.model_validate({"id": "g", "title": "t", "assets": [*ALL_FORMATS, ogg]})
+    assert guide.pick_audio(AudioQuality.BALANCED).url == "oga"
+    assert guide.pick_audio(AudioQuality.COMPACT).url == "m4a"
+    assert guide.pick_audio(AudioQuality.HIGHEST).url == "wav"
+    without_ogg = Guide.model_validate({"id": "g", "title": "t", "assets": ALL_FORMATS})
+    assert without_ogg.pick_audio(AudioQuality.BALANCED).url == "m4a"
+
+
+def test_highest_falls_back_to_vorbis_before_aac() -> None:
+    assets = [
+        {"url": "m4a", "content_type": "audio/mp4", "duration": 60},
+        {"url": "oga", "content_type": "audio/ogg", "duration": 60},
+    ]
+    guide = Guide.model_validate({"id": "g", "title": "t", "assets": assets})
+    assert guide.pick_audio(AudioQuality.HIGHEST).url == "oga"
+
+
+@pytest.mark.parametrize(
+    ("spelling", "canonical_pick"),
+    [
+        ("audio/wave", "wav"),
+        ("audio/x-wav", "wav"),
+        ("AUDIO/WAV; charset=binary", "wav"),
+    ],
+)
+def test_wav_spellings_rank_as_wav(spelling: str, canonical_pick: str) -> None:
+    assets = [
+        {"url": "wav", "content_type": spelling, "duration": 60},
+        {"url": "m4a", "content_type": "audio/mp4", "duration": 60},
+    ]
+    guide = Guide.model_validate({"id": "g", "title": "t", "assets": assets})
+    assert guide.pick_audio(AudioQuality.HIGHEST).url == canonical_pick
+    assert guide.pick_audio(AudioQuality.COMPACT).url == "m4a"
+
+
+def test_aac_and_mp3_spellings_rank_as_their_formats() -> None:
+    assets = [
+        {"url": "wav", "content_type": "audio/wav", "duration": 60},
+        {"url": "latm", "content_type": "audio/mp4a-latm", "duration": 60},
+    ]
+    guide = Guide.model_validate({"id": "g", "title": "t", "assets": assets})
+    assert guide.pick_audio(AudioQuality.COMPACT).url == "latm"
+    mp3 = [
+        {"url": "wav", "content_type": "audio/wav", "duration": 60},
+        {"url": "mp3", "content_type": "audio/mp3", "duration": 60},
+    ]
+    assert Guide.model_validate({"id": "g", "title": "t", "assets": mp3}).pick_audio().url == "mp3"

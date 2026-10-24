@@ -5,6 +5,7 @@ from .client import CalmClient
 from .credentials import Credentials
 from .exceptions import CalmAPIError, CalmAuthError, CalmRateLimitError
 from .models import (
+    AudioQuality,
     Feed,
     FeedResponse,
     FeedTag,
@@ -24,6 +25,7 @@ from .models import (
 )
 
 __all__ = [
+    "AudioQuality",
     "AuthStrategy",
     "BearerAuth",
     "CalmAPIError",

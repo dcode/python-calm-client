@@ -25,7 +25,18 @@ from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, ProgressBar, Static
 
 from .client import DEFAULT_CATEGORIES
-from .models import FeedResponse, Guide, MediaType, Pack, PackItem, PackItemAsset, Playlist, Program, SearchItem
+from .models import (
+    AudioQuality,
+    FeedResponse,
+    Guide,
+    MediaType,
+    Pack,
+    PackItem,
+    PackItemAsset,
+    Playlist,
+    Program,
+    SearchItem,
+)
 
 if TYPE_CHECKING:
     from .client import CalmClient
@@ -530,10 +541,11 @@ class BrowseApp(App):
         Binding("m", "maximize_player", "Max"),
     ]
 
-    def __init__(self, client: CalmClient) -> None:
-        """Initialise with an authenticated CalmClient."""
+    def __init__(self, client: CalmClient, quality: AudioQuality = AudioQuality.COMPACT) -> None:
+        """Initialise with an authenticated CalmClient and the audio quality to stream."""
         super().__init__()
         self._client = client
+        self._quality = quality
         self._feed_cache: dict[str, FeedResponse] = {}
         # full packs by pack_class; feeds only embed a preview (about 10 items) of each pack
         self._pack_cache: dict[str, Pack] = {}
@@ -1230,7 +1242,7 @@ class BrowseApp(App):
             self._player = None
 
         track = self._current_program.guides[index]
-        url = track.stream_url
+        url = track.stream_url_for(self._quality)
         if not url:
             self.notify("No stream URL available", severity="error")
             return
@@ -1526,7 +1538,7 @@ class BrowseApp(App):
         self._show_search_input()
 
 
-def run_browse(client: CalmClient) -> None:
+def run_browse(client: CalmClient, quality: AudioQuality = AudioQuality.COMPACT) -> None:
     """Launch the browse TUI with the given authenticated client."""
-    app = BrowseApp(client)
+    app = BrowseApp(client, quality)
     app.run()
