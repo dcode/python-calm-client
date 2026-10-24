@@ -4,7 +4,9 @@ from calm_client.models import (
     Asset,
     FeedTag,
     Guide,
+    ImageAsset,
     MediaType,
+    Narrator,
     Pack,
     PackItem,
     PackItemAsset,
@@ -149,3 +151,48 @@ def test_pack_has_content_vs_playable() -> None:
     guides = Pack(items=[PackItem.model_validate({"type": "guide", "guide_id": "g"})])
     assert guides.has_content
     assert guides.has_playable_items
+
+
+def test_duration_prefers_the_audio_asset_over_the_first_asset() -> None:
+    video = {"url": "v", "content_type": "video/mp4", "duration": 5}
+    wav = {"url": "w", "content_type": "audio/wav", "duration": 60}
+    m4a = {"url": "m", "content_type": "audio/mp4", "duration": 59}
+    guide = Guide.model_validate({"id": "g", "title": "t", "assets": [video, wav, m4a]})
+    assert guide.duration == 59
+    item = PackItem.model_validate({"assets": [video, wav, m4a]})
+    assert item.duration == 59
+    assert item.duration_str == "0m"
+
+
+def test_duration_falls_back_to_the_first_asset_and_to_zero() -> None:
+    only_video = [{"url": "v", "content_type": "video/mp4", "duration": 90}]
+    assert Guide.model_validate({"id": "g", "title": "t", "assets": only_video}).duration == 90
+    assert Guide(id="g", title="t").duration == 0.0
+    assert PackItem().duration == 0.0
+
+
+def test_pack_item_image_url_and_display_subtitle() -> None:
+    assert PackItem().image_url is None
+    assert PackItem(image=ImageAsset()).image_url is None
+    assert PackItem(image=ImageAsset(url="u")).image_url == "u"
+    assert PackItem(narrator_name="Jay", subtitle="Sleep").display_subtitle == "Jay"
+    assert PackItem(subtitle="Sleep").display_subtitle == "Sleep"
+    assert PackItem().display_subtitle == ""
+
+
+def test_artist_is_the_same_shape_on_every_model() -> None:
+    from_item = PackItem(narrator_id="n1", narrator_name="Jay").artist
+    from_guide = Guide(id="g", title="t", narrator_id="n1", narrator_name="Jay").artist
+    from_string = Program(id="p", title="t", narrator="Jay", narrator_id="n1").artist
+    from_object = Program(id="p", title="t", narrator=Narrator(id="n1", name="Jay")).artist
+    assert from_item == from_guide == from_string == from_object == Narrator(id="n1", name="Jay")
+    assert PackItem().artist is None
+    assert Guide(id="g", title="t").artist is None
+    assert Program(id="p", title="t").artist is None
+
+
+def test_artist_without_an_id_and_narrator_image_url() -> None:
+    assert PackItem(narrator_name="Jay").artist == Narrator(id=None, name="Jay")
+    assert Narrator(name="Jay").image_url is None
+    assert Narrator(name="Jay", headshot=ImageAsset()).image_url is None
+    assert Narrator(name="Jay", headshot=ImageAsset(url="h")).image_url == "h"

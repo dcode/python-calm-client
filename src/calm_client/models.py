@@ -74,6 +74,14 @@ def _best_audio[T: (Asset, PackItemAsset)](assets: Iterable[T]) -> T | None:
     return min(audio, key=lambda a: _AUDIO_PREFERENCE.get(a.content_type, 9), default=None)
 
 
+def _duration[T: (Asset, PackItemAsset)](assets: Iterable[T]) -> float:
+    """Return the length in seconds of the preferred audio asset, else of the first asset."""
+    assets = list(assets)
+    if audio := _best_audio(assets):
+        return audio.duration
+    return assets[0].duration if assets else 0.0
+
+
 class Guide(Lockable):
     """Represents a guide or track within a program."""
 
@@ -98,6 +106,18 @@ class Guide(Lockable):
             return None
         return self.assets[0].url
 
+    @property
+    def duration(self) -> float:
+        """Return the length in seconds (the preferred audio asset's), 0.0 when unknown."""
+        return _duration(self.assets)
+
+    @property
+    def artist(self) -> Narrator | None:
+        """Return the narrator or composer credited on the guide, if any."""
+        if not self.narrator_name:
+            return None
+        return Narrator(id=self.narrator_id, name=self.narrator_name)
+
 
 class Narrator(BaseModel):
     """The narrator or composer credited on a program."""
@@ -105,6 +125,11 @@ class Narrator(BaseModel):
     id: str | None = None
     name: str
     headshot: ImageAsset | None = None
+
+    @property
+    def image_url(self) -> str | None:
+        """Return the headshot URL, if there is one."""
+        return self.headshot.url if self.headshot and self.headshot.url else None
 
 
 class Program(Lockable):
@@ -138,6 +163,15 @@ class Program(Lockable):
         if isinstance(self.narrator, Narrator):
             return self.narrator.name
         return self.narrator or None
+
+    @property
+    def artist(self) -> Narrator | None:
+        """Return the narrator or composer, whether the response gave an object or a string."""
+        if isinstance(self.narrator, Narrator):
+            return self.narrator
+        if self.narrator:
+            return Narrator(id=self.narrator_id, name=self.narrator)
+        return None
 
     @property
     def image_url(self) -> str | None:
@@ -275,11 +309,31 @@ class PackItem(Lockable):
         return _best_audio(self.assets)
 
     @property
+    def image_url(self) -> str | None:
+        """Return the cover image URL, if the item has one."""
+        return self.image.url if self.image and self.image.url else None
+
+    @property
+    def artist(self) -> Narrator | None:
+        """Return the narrator or composer credited on the item, if any."""
+        if not self.narrator_name:
+            return None
+        return Narrator(id=self.narrator_id, name=self.narrator_name)
+
+    @property
+    def display_subtitle(self) -> str:
+        """Return the line to show under the title: the narrator, else the subtitle."""
+        return self.narrator_name or self.subtitle or ""
+
+    @property
+    def duration(self) -> float:
+        """Return the length in seconds (the preferred audio asset's), 0.0 when unknown."""
+        return _duration(self.assets)
+
+    @property
     def duration_str(self) -> str:
         """Return a human-readable duration string."""
-        if not self.assets:
-            return ""
-        secs = self.assets[0].duration
+        secs = self.duration
         if secs <= 0:
             return ""
         mins = int(secs // 60)
