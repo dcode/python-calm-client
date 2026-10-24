@@ -310,6 +310,7 @@ async def test_player_controls(mock_client: MagicMock, mock_player: MagicMock) -
     )
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
+        await pilot.pause()  # let the app finish mounting before poking its state
         app._current_program = prog
         app._player = mock_player
         app._current_track_index = 0
@@ -446,6 +447,7 @@ async def test_prev_track(mock_client: MagicMock, mock_player: MagicMock) -> Non
     )
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
+        await pilot.pause()  # let the app finish mounting before poking its state
         app._current_program = prog
         app._current_track_index = 1
         app._player = mock_player
@@ -478,6 +480,7 @@ async def test_prev_track_out_of_range(mock_client: MagicMock, mock_player: Magi
     )
     app = BrowseApp(mock_client)
     async with app.run_test() as pilot:
+        await pilot.pause()  # let the app finish mounting before poking its state
         app._current_program = prog
         app._current_track_index = 0
         app._player = mock_player
