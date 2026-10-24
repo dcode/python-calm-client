@@ -10,6 +10,7 @@ from textual.binding import Binding
 from textual.containers import Center, Vertical
 from textual.widgets import Footer, Header, Label, ProgressBar
 
+from .models import AudioQuality
 from .player import CalmPlayer, format_time
 
 if TYPE_CHECKING:
@@ -62,13 +63,14 @@ class PlayApp(App):
         Binding("left", "seek_backward", "-10s"),
     ]
 
-    def __init__(self, program: Program, guide_index: int) -> None:
+    def __init__(self, program: Program, guide_index: int, quality: AudioQuality = AudioQuality.COMPACT) -> None:
         """Initialise with program and track index."""
         super().__init__()
         self.program = program
         self.guide_index = guide_index
         self._player: CalmPlayer | None = None
         self._track: Guide = program.guides[guide_index]
+        self._quality = quality
 
     def compose(self) -> ComposeResult:
         """Render the player UI."""
@@ -97,7 +99,7 @@ class PlayApp(App):
     @work(exclusive=True, group="playback")
     async def _start_playback(self) -> None:
         """Initialize player and start streaming."""
-        stream_url = self._track.stream_url
+        stream_url = self._track.stream_url_for(self._quality)
         if not stream_url:
             self.notify("No audio URL for this track", severity="error")
             self.exit()
@@ -146,7 +148,7 @@ class PlayApp(App):
             self._player.seek(-10)
 
 
-def run_play(program: Program, guide_index: int) -> None:
+def run_play(program: Program, guide_index: int, quality: AudioQuality = AudioQuality.COMPACT) -> None:
     """Launch the play TUI."""
-    app = PlayApp(program, guide_index)
+    app = PlayApp(program, guide_index, quality)
     app.run()

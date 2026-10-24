@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from calm_client.models import Guide, Program
+from calm_client.models import AudioQuality, Guide, Program
 from calm_client.play import PlayApp
 
 
@@ -12,7 +12,7 @@ class TestPlayApp:
     def mock_program(self) -> MagicMock:
         guide = MagicMock(spec=Guide)
         guide.title = "Test Guide"
-        guide.stream_url = "http://example.com/stream.mp3"
+        guide.stream_url_for.return_value = "http://example.com/stream.mp3"
 
         program = MagicMock(spec=Program)
         program.title = "Test Program"
@@ -71,7 +71,7 @@ class TestPlayApp:
     @pytest.mark.asyncio
     async def test_playback_error(self, mock_program: MagicMock) -> None:
         # Setup program with no URL
-        mock_program.guides[0].stream_url = None
+        mock_program.guides[0].stream_url_for.return_value = None
 
         app = PlayApp(mock_program, 0)
         async with app.run_test() as _:
@@ -140,5 +140,5 @@ def test_run_play_runs_app() -> None:
     program.guides = [MagicMock(spec=Guide)]
     with patch("calm_client.play.PlayApp") as app_cls:
         run_play(program, 0)
-    app_cls.assert_called_once_with(program, 0)
+    app_cls.assert_called_once_with(program, 0, AudioQuality.COMPACT)
     app_cls.return_value.run.assert_called_once_with()

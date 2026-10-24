@@ -12,6 +12,7 @@ from calm_client.credentials import Credentials
 from calm_client.exceptions import CalmAuthError
 from calm_client.models import (
     Asset,
+    AudioQuality,
     Guide,
     Program,
     SearchItem,
@@ -225,7 +226,7 @@ def test_play_valid(
     with suppress(SystemExit):
         app(["play", "p1"])
 
-    mock_run_play.assert_called_with(program, 0)
+    mock_run_play.assert_called_with(program, 0, AudioQuality.COMPACT)
 
 
 @patch("calm_client.browse.run_browse")
@@ -619,3 +620,45 @@ def test_login_failure_is_reported(mock_ask: MagicMock, mock_client: MagicMock, 
     with patch.dict("os.environ", {}, clear=True), suppress(SystemExit):
         app(["login"])
     mock_console.print.assert_any_call("[red]Login failed: bad password[/red]")
+
+
+@patch("calm_client.cli.save_credentials")
+@patch("calm_client.play.run_play")
+@patch("calm_client.cli.CalmClient")
+@patch("calm_client.cli.load_credentials")
+def test_play_quality_option(
+    mock_load_credentials: MagicMock,
+    mock_client: MagicMock,
+    mock_run_play: MagicMock,
+    mock_save_credentials: MagicMock,
+) -> None:
+    mock_creds = MagicMock()
+    mock_creds.token = "token"
+    mock_load_credentials.return_value = mock_creds
+    asset = Asset(url="http://url", content_type="audio/wav", duration=100)
+    program = Program(title="T", id="p1", guides=[Guide(id="g1", title="Track 1", assets=[asset])])
+    mock_instance = mock_client.return_value
+    mock_instance.credentials = mock_creds
+    mock_instance.get_program = AsyncMock(return_value=program)
+    mock_instance.close = AsyncMock()
+
+    with suppress(SystemExit):
+        app(["play", "p1", "--quality", "highest"])
+
+    mock_run_play.assert_called_with(program, 0, AudioQuality.HIGHEST)
+
+
+@patch("calm_client.browse.run_browse")
+@patch("calm_client.cli.CalmClient")
+@patch("calm_client.cli.load_credentials")
+def test_browse_quality_option(
+    mock_load_credentials: MagicMock, mock_client: MagicMock, mock_run_browse: MagicMock
+) -> None:
+    mock_creds = MagicMock()
+    mock_creds.token = "token"
+    mock_load_credentials.return_value = mock_creds
+
+    with suppress(SystemExit):
+        app(["browse", "--quality", "highest"])
+
+    mock_run_browse.assert_called_with(mock_client.return_value, AudioQuality.HIGHEST)

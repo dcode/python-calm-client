@@ -17,7 +17,7 @@ from textual.widgets import Input, Label, ListView, ProgressBar, Static
 from calm_client import browse
 from calm_client.browse import BrowseApp, CatalogCard, NowPlayingBar, TrackItem, _resize_image, run_browse
 from calm_client.client import CalmClient
-from calm_client.models import Asset, FeedResponse, Guide, ImageAsset, Pack, PackItem, Program
+from calm_client.models import Asset, AudioQuality, FeedResponse, Guide, ImageAsset, Pack, PackItem, Program
 
 
 def _png() -> bytes:
@@ -90,7 +90,7 @@ def test_now_playing_bar_format() -> None:
 def test_run_browse_runs_app(client: MagicMock) -> None:
     with patch("calm_client.browse.BrowseApp") as app_cls:
         run_browse(client)
-    app_cls.assert_called_once_with(client)
+    app_cls.assert_called_once_with(client, AudioQuality.COMPACT)
     app_cls.return_value.run.assert_called_once_with()
 
 
