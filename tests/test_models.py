@@ -16,6 +16,12 @@ from calm_client.models import (
 )
 
 
+def _url(asset: Asset | PackItemAsset | None) -> str:
+    """Return the URL of a picked asset, failing the test when nothing was picked."""
+    assert asset is not None
+    return asset.url
+
+
 def test_guide_stream_url() -> None:
     assert Guide(id="g", title="t").stream_url is None
     guide = Guide(id="g", title="t", assets=[Asset(url="u", content_type="audio/mp4", duration=1)])
@@ -209,18 +215,18 @@ ALL_FORMATS = [
 
 def test_pick_audio_compact_prefers_compressed_formats() -> None:
     guide = Guide.model_validate({"id": "g", "title": "t", "assets": ALL_FORMATS})
-    assert guide.pick_audio().url == "m4a"
-    assert guide.pick_audio(AudioQuality.COMPACT).url == "m4a"
-    assert guide.audio_asset.url == "m4a"
+    assert _url(guide.pick_audio()) == "m4a"
+    assert _url(guide.pick_audio(AudioQuality.COMPACT)) == "m4a"
+    assert _url(guide.audio_asset) == "m4a"
     assert guide.stream_url == "m4a"
 
 
 def test_pick_audio_highest_prefers_wav_and_falls_back() -> None:
     guide = Guide.model_validate({"id": "g", "title": "t", "assets": ALL_FORMATS})
-    assert guide.pick_audio(AudioQuality.HIGHEST).url == "wav"
+    assert _url(guide.pick_audio(AudioQuality.HIGHEST)) == "wav"
     assert guide.stream_url_for(AudioQuality.HIGHEST) == "wav"
     without_wav = Guide.model_validate({"id": "g", "title": "t", "assets": ALL_FORMATS[1:]})
-    assert without_wav.pick_audio(AudioQuality.HIGHEST).url == "m4a"
+    assert _url(without_wav.pick_audio(AudioQuality.HIGHEST)) == "m4a"
 
 
 def test_pick_audio_never_returns_video_and_stream_url_falls_back_to_first_asset() -> None:
@@ -232,19 +238,19 @@ def test_pick_audio_never_returns_video_and_stream_url_falls_back_to_first_asset
 
 def test_pack_item_pick_audio_follows_quality() -> None:
     item = PackItem.model_validate({"assets": ALL_FORMATS})
-    assert item.pick_audio().url == "m4a"
-    assert item.pick_audio(AudioQuality.HIGHEST).url == "wav"
+    assert _url(item.pick_audio()) == "m4a"
+    assert _url(item.pick_audio(AudioQuality.HIGHEST)) == "wav"
     assert PackItem().pick_audio(AudioQuality.HIGHEST) is None
 
 
 def test_pick_audio_balanced_prefers_vorbis() -> None:
     ogg = {"url": "oga", "content_type": "audio/ogg", "duration": 60}
     guide = Guide.model_validate({"id": "g", "title": "t", "assets": [*ALL_FORMATS, ogg]})
-    assert guide.pick_audio(AudioQuality.BALANCED).url == "oga"
-    assert guide.pick_audio(AudioQuality.COMPACT).url == "m4a"
-    assert guide.pick_audio(AudioQuality.HIGHEST).url == "wav"
+    assert _url(guide.pick_audio(AudioQuality.BALANCED)) == "oga"
+    assert _url(guide.pick_audio(AudioQuality.COMPACT)) == "m4a"
+    assert _url(guide.pick_audio(AudioQuality.HIGHEST)) == "wav"
     without_ogg = Guide.model_validate({"id": "g", "title": "t", "assets": ALL_FORMATS})
-    assert without_ogg.pick_audio(AudioQuality.BALANCED).url == "m4a"
+    assert _url(without_ogg.pick_audio(AudioQuality.BALANCED)) == "m4a"
 
 
 def test_highest_falls_back_to_vorbis_before_aac() -> None:
@@ -253,7 +259,7 @@ def test_highest_falls_back_to_vorbis_before_aac() -> None:
         {"url": "oga", "content_type": "audio/ogg", "duration": 60},
     ]
     guide = Guide.model_validate({"id": "g", "title": "t", "assets": assets})
-    assert guide.pick_audio(AudioQuality.HIGHEST).url == "oga"
+    assert _url(guide.pick_audio(AudioQuality.HIGHEST)) == "oga"
 
 
 @pytest.mark.parametrize(
@@ -270,8 +276,8 @@ def test_wav_spellings_rank_as_wav(spelling: str, canonical_pick: str) -> None:
         {"url": "m4a", "content_type": "audio/mp4", "duration": 60},
     ]
     guide = Guide.model_validate({"id": "g", "title": "t", "assets": assets})
-    assert guide.pick_audio(AudioQuality.HIGHEST).url == canonical_pick
-    assert guide.pick_audio(AudioQuality.COMPACT).url == "m4a"
+    assert _url(guide.pick_audio(AudioQuality.HIGHEST)) == canonical_pick
+    assert _url(guide.pick_audio(AudioQuality.COMPACT)) == "m4a"
 
 
 def test_aac_and_mp3_spellings_rank_as_their_formats() -> None:
@@ -280,9 +286,9 @@ def test_aac_and_mp3_spellings_rank_as_their_formats() -> None:
         {"url": "latm", "content_type": "audio/mp4a-latm", "duration": 60},
     ]
     guide = Guide.model_validate({"id": "g", "title": "t", "assets": assets})
-    assert guide.pick_audio(AudioQuality.COMPACT).url == "latm"
+    assert _url(guide.pick_audio(AudioQuality.COMPACT)) == "latm"
     mp3 = [
         {"url": "wav", "content_type": "audio/wav", "duration": 60},
         {"url": "mp3", "content_type": "audio/mp3", "duration": 60},
     ]
-    assert Guide.model_validate({"id": "g", "title": "t", "assets": mp3}).pick_audio().url == "mp3"
+    assert _url(Guide.model_validate({"id": "g", "title": "t", "assets": mp3}).pick_audio()) == "mp3"
