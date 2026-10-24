@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.1] — 2026-10-24
+
+### Added
+
+- An `audio/*` type that is neither ranked nor a known alias (for example `audio/flac`) is
+  logged once per process on the `calm_client` logger, with where to report it. It still
+  ranks last and plays when nothing known exists, so behaviour is unchanged.
+
 ## [0.4.0] — 2026-10-24
 
 ### Added
