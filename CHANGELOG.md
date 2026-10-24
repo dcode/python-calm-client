@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] — 2026-10-23
+
+### Added
+
+- `CalmRateLimitError`, a `CalmAPIError` subclass raised on HTTP 429. Its `retry_after`
+  holds the wait in seconds when Calm sent a numeric `Retry-After` header (otherwise
+  `None`), so integrations can back off instead of treating it as a generic failure.
+
 ## [0.2.1] — 2026-10-22
 
 ### Added
