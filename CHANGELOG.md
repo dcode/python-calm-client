@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] — 2026-10-24
+
+### Added
+
+- `AudioQuality` (`compact`, `balanced`, `highest`) chooses which audio format to prefer.
+  Calm serves AAC (128 kbps), Ogg Vorbis (about 256 kbps) and 24-bit WAV, roughly 30, 50
+  and 500 MB per 30 minutes. `Guide` and `PackItem` gain `pick_audio(quality)`, `Guide`
+  gains `stream_url_for(quality)`, and `calm play` / `calm browse` take `--quality`. The
+  default is unchanged.
+- `artist` on `PackItem`, `Program` and `Guide` returns the credited narrator or composer
+  as a `Narrator`, so consumers no longer re-derive it from different fields.
+- `PackItem.image_url`, `Narrator.image_url`, `PackItem.display_subtitle`, and `duration`
+  (seconds of the preferred audio asset) on `PackItem` and `Guide`.
+
+### Fixed
+
+- Audio mime types are canonicalised before ranking: `audio/wave`, `audio/x-wav` and
+  `audio/mp4a-latm`, which Calm sends, used to rank last. Case and parameters are ignored.
+- `duration_str` and the browse track list used the first asset, which could be a wav or a
+  video, instead of the audio asset that plays.
+
 ## [0.3.0] — 2026-10-23
 
 ### Added
