@@ -1,5 +1,8 @@
+import logging
+
 import pytest
 
+from calm_client import models
 from calm_client.models import (
     Asset,
     AudioQuality,
@@ -292,3 +295,74 @@ def test_aac_and_mp3_spellings_rank_as_their_formats() -> None:
         {"url": "mp3", "content_type": "audio/mp3", "duration": 60},
     ]
     assert _url(Guide.model_validate({"id": "g", "title": "t", "assets": mp3}).pick_audio()) == "mp3"
+
+
+@pytest.fixture
+def audio_warnings(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
+    """Capture calm_client warnings with a fresh set of already-reported audio types."""
+    monkeypatch.setattr(models, "_warned_audio_types", set())
+    caplog.set_level(logging.WARNING, logger="calm_client")
+    return caplog
+
+
+def _unknown_format_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == "calm_client" and "unknown_audio_format" in r.getMessage()]
+
+
+def test_unknown_audio_type_is_reported_and_ranked_last(audio_warnings: pytest.LogCaptureFixture) -> None:
+    assets = [
+        {"url": "flac", "content_type": "audio/flac", "duration": 60},
+        {"url": "m4a", "content_type": "audio/mp4", "duration": 60},
+    ]
+    guide = Guide.model_validate({"id": "g", "title": "t", "assets": assets})
+    assert _url(guide.pick_audio(AudioQuality.HIGHEST)) == "m4a"
+    records = _unknown_format_records(audio_warnings)
+    assert len(records) == 1
+    assert "audio/flac" in records[0].getMessage()
+
+
+def test_unknown_audio_type_is_still_used_when_it_is_the_only_one(audio_warnings: pytest.LogCaptureFixture) -> None:
+    assets = [{"url": "flac", "content_type": "audio/flac", "duration": 60}]
+    guide = Guide.model_validate({"id": "g", "title": "t", "assets": assets})
+    assert _url(guide.pick_audio()) == "flac"
+    assert len(_unknown_format_records(audio_warnings)) == 1
+
+
+def test_unknown_audio_type_is_reported_once_per_type(audio_warnings: pytest.LogCaptureFixture) -> None:
+    flac = {"url": "flac", "content_type": "audio/flac", "duration": 60}
+    opus = {"url": "opus", "content_type": "audio/opus", "duration": 60}
+    for _ in range(3):
+        Guide.model_validate({"id": "g", "title": "t", "assets": [flac]}).pick_audio()
+        PackItem.model_validate({"assets": [flac, opus]}).pick_audio(AudioQuality.BALANCED)
+    messages = [r.getMessage() for r in _unknown_format_records(audio_warnings)]
+    assert len(messages) == 2
+    assert any("audio/flac" in m for m in messages)
+    assert any("audio/opus" in m for m in messages)
+
+
+def test_known_types_and_aliases_do_not_warn(audio_warnings: pytest.LogCaptureFixture) -> None:
+    types = [
+        "audio/wav",
+        "audio/wave",
+        "audio/x-wav",
+        "audio/mp4",
+        "audio/mp4a-latm",
+        "audio/mpeg",
+        "audio/mp3",
+        "audio/ogg",
+        "AUDIO/OGG; codecs=vorbis",
+    ]
+    assets = [{"url": f"u{i}", "content_type": t, "duration": 1} for i, t in enumerate(types)]
+    Guide.model_validate({"id": "g", "title": "t", "assets": assets}).pick_audio()
+    assert _unknown_format_records(audio_warnings) == []
+
+
+def test_non_audio_and_url_less_assets_do_not_warn(audio_warnings: pytest.LogCaptureFixture) -> None:
+    assets = [
+        {"url": "v", "content_type": "video/mp4", "duration": 1},
+        {"url": "x", "content_type": "application/octet-stream", "duration": 1},
+        {"url": "", "content_type": "audio/flac", "duration": 1},
+        {"url": "e", "content_type": "", "duration": 1},
+    ]
+    assert Guide.model_validate({"id": "g", "title": "t", "assets": assets}).pick_audio() is None
+    assert _unknown_format_records(audio_warnings) == []

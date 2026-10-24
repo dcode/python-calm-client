@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from .logging import logger
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -50,6 +52,23 @@ _AUDIO_ALIASES = {
     "audio/mp3": "audio/mpeg",
     "audio/vorbis": "audio/ogg",
 }
+
+
+# audio types already reported, so one new format logs once instead of on every guide
+_warned_audio_types: set[str] = set()
+
+
+def _warn_unknown_audio_type(content_type: str, canonical: str) -> None:
+    """Log once per process that an audio type is neither ranked nor a known alias."""
+    if canonical in _warned_audio_types:
+        return
+    _warned_audio_types.add(canonical)
+    logger.warning(
+        "unknown_audio_format",
+        content_type=content_type,
+        detail="not ranked or a known alias, so it is picked last; please report it",
+        report="https://github.com/dcode/python-calm-client/issues",
+    )
 
 
 def _canonical_type(content_type: str) -> str:
@@ -108,6 +127,9 @@ def _best_audio[T: (Asset, PackItemAsset)](
     """Return the preferred audio asset, ignoring video and assets without a URL."""
     ranking = _AUDIO_PREFERENCE[quality]
     audio = [a for a in assets if a.url and _canonical_type(a.content_type).startswith("audio/")]
+    for asset in audio:
+        if (canonical := _canonical_type(asset.content_type)) not in ranking:
+            _warn_unknown_audio_type(asset.content_type, canonical)
     return min(audio, key=lambda a: ranking.get(_canonical_type(a.content_type), 9), default=None)
 
 
