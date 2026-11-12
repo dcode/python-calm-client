@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import httpx
 import json
 import logging
 import os
@@ -315,6 +316,130 @@ def play(program_id: str, *, guide: int = 0, quality: AudioQuality = AudioQualit
 
     # Launch the play TUI
     run_play(program, guide, quality)
+
+
+async def _download_track(
+    client: CalmClient, track: Program, quality: AudioQuality, track_index: int, total: int
+) -> Path | None:
+    """Download a single track. Returns the saved path, or None on failure."""
+    stream_url = track.stream_url_for(quality)
+    if not stream_url:
+        console.print(f"[red]No streamable audio found for track {track_index} '{track.title}' (quality={quality}).[/red]")
+        return None
+    padded = f"{track_index + 1:02d}"
+    safe_title = track.title.strip().replace(" ", "_") if track.title else "calm_download"
+    dest = Path(f"{padded} {safe_title}.wav")
+    if dest.exists():
+        console.print(f"[dim]Skipping {dest} (already exists).[/dim]")
+        return dest
+    async with httpx.AsyncClient() as http_client:
+        resp = await http_client.get(stream_url, headers={"Authorization": f"Bearer {client.credentials.token}"})
+        dest.write_bytes(resp.content)
+    console.print(f"[green]Downloaded {track_index + 1}/{total} — {dest}[/green]")
+    return dest
+
+
+def _write_m3u(program: Program, downloaded: list[tuple[int, Path, Program]], quality: AudioQuality) -> Path:
+    """Write an M3U playlist next to the downloaded tracks, with EXTINF metadata."""
+    safe_program = program.title.strip().replace(" ", "_") if program.title else "calm_playlist"
+    playlist = Path(f"{safe_program}.m3u")
+    lines = ["#EXTM3U"]
+    for track_index, dest, track in downloaded:
+        title = track.title or dest.stem
+        artist = track.artist.name if track.artist else ""
+        duration = int(track.duration) if track.duration else 0
+        label = f"{artist} - {title}" if artist else title
+        lines.append(f"#EXTINF:{duration},{label}")
+        lines.append(dest.name)
+    playlist.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return playlist
+
+
+async def _download_playlist(
+    program_id: str, quality: AudioQuality, start: int, end: int, all_tracks: bool
+) -> int:
+    """Download one or more tracks of a program. Returns number of successful downloads."""
+    creds = load_credentials()
+    if not creds or not creds.token:
+        console.print("[yellow]Not logged in. Run 'calm login' first.[/yellow]")
+        return 0
+
+    original_token = creds.token
+    client = CalmClient(creds)
+
+    try:
+        program = await client.get_program(program_id)
+        _save_if_refreshed(client, original_token)
+        client._program = program
+    except Exception as e:
+        console.print(f"[red]Error fetching program: {e}[/red]")
+        return 0
+
+    tracks = program.guides[start:end]
+    if not tracks:
+        console.print(f"[red]No tracks found for index {start}:{end} in program '{program.title}'.[/red]")
+        return 0
+
+    total = len(tracks)
+    success = 0
+    failed = 0
+    downloaded: list[tuple[int, Path, Program]] = []
+    for i, track in enumerate(tracks):
+        result = await _download_track(client, track, quality, start + i, total)
+        if result:
+            success += 1
+            downloaded.append((start + i, result, track))
+        else:
+            failed += 1
+        console.print(f"[dim]{start + i + 1}. {track.title}[/dim]")
+
+    if failed:
+        console.print(f"\n[yellow]Downloaded {success}/{total} tracks; {failed} failed.[/yellow]")
+    else:
+        console.print(f"\n[green]Downloaded all {total} tracks as WAV files.[/green]")
+
+    if downloaded:
+        playlist = _write_m3u(program, downloaded, quality)
+        console.print(f"[green]Created playlist: {playlist}[/green]")
+
+    return success
+
+
+@app.command
+def download(
+    program_id: str,
+    *,
+    guide: Annotated[
+        int | None,
+        cyclopts.Parameter(help="Optional guide index (0-based) to download a single track. If omitted, downloads the entire program."),
+    ] = None,
+    quality: AudioQuality = AudioQuality.HIGHEST,
+    start: Annotated[
+        int | None,
+        cyclopts.Parameter(help="Download only tracks from this index onward (0-based). Used with --guide to select a range."),
+    ] = None,
+    end: Annotated[
+        int | None,
+        cyclopts.Parameter(help="Download only tracks up to this index (0-based, exclusive). Used with --start."),
+    ] = None,
+) -> None:
+    """Download audio from a Calm program or playlist as a WAV file.
+
+    By default the entire program is downloaded track by track. Use --guide
+    to download a single track, or --start/--end to select a range of tracks.
+
+    Args:
+        program_id: The program ID (e.g. from search or browse).
+        guide: A single guide/track index (0-indexed) to download instead of the whole program.
+        quality: Audio format to prefer: compact (AAC, about 30 MB per 30 min),
+            balanced (Ogg Vorbis, about 50 MB) or highest (lossless WAV, about 500 MB).
+        start: Download only tracks from this index onward (0-indexed).
+        end: Download only tracks up to this index (0-indexed, exclusive).
+    """
+    if guide is not None:
+        asyncio.run(_download_playlist(program_id, quality, guide, guide + 1, False))
+    else:
+        asyncio.run(_download_playlist(program_id, quality, start or 0, end or None, True))
 
 
 @app.command

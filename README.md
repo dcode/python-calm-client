@@ -14,6 +14,7 @@ search for content, and stream audio — all from your terminal.
 - **Async API** — Fully async Python client built on `httpx`
 - **Type Safe** — Comprehensive Pydantic models with `py.typed` support
 - **Audio Playback** — Stream meditation and sleep audio via `mpv`
+- **Audio Download** — Download Calm programs/playlists as numbered WAV files plus a generated M3U playlist with metadata
 - **Auth** — Email/password login with automatic token refresh
 
 ## Installation
@@ -80,6 +81,51 @@ calm browse
 calm search "Sleep Stories"
 calm play <program_id>
 ```
+
+## Download Tracks
+
+Download any Calm program (playlist) as lossless WAV files — all tracks are
+numbered automatically and an M3U playlist with metadata (title, artist,
+duration) is created next to the downloads:
+
+```bash
+# Download every track in a program
+calm download Cylx9JvEbQ
+
+# Download a specific track
+calm download Cylx9JvEbQ --guide 3
+
+# Download a range of tracks (2 through 5)
+calm download Cylx9JvEbQ --start 2 --end 5
+
+# Choose quality: compact (AAC, ~30 MB), balanced (Vorbis, ~50 MB) or highest (lossless WAV, ~500 MB)
+calm download Cylx9JvEbQ --quality highest
+```
+
+Example output:
+
+```
+01 Hawaiian Slack Key Guitar
+Downloaded 1/17 — 01 Hawaiian_Slack_Key_Guitar.wav
+02 Two Paniolos
+Downloaded 2/17 — 02 Two_Paniolos.wav
+...
+Downloaded all 17 tracks as WAV files.
+Created playlist: Hawaiian_Slack_Key_Guitar.m3u
+```
+
+`Hawaiian_Slack_Key_Guitar.m3u`:
+
+```m3u
+#EXTM3U
+#EXTINF:300,Kainalu - Two Paniolos
+02 Two_Paniolos.wav
+#EXTINF:300,Kainalu - Nani Kaua'i
+03 Nani_Kauai.wav
+...
+```
+
+## Documentation
 
 ## Quick Start (Python)
 
