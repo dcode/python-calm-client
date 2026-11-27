@@ -2,7 +2,8 @@
 
 As a library, calm-client logs through the standard ``logging`` module under the
 ``calm_client`` logger, so it is silent unless the host application configures logging.
-The CLI calls :func:`configure_logging` to get pretty console output and a JSON log file.
+It needs no logging package of its own. The CLI (the ``cli`` extra, which brings
+structlog) calls :func:`configure_logging` to get pretty console output and a JSON log file.
 
 Either way, credentials never reach a log: request headers, passwords and tokens are
 redacted by :func:`redact_sensitive`.
@@ -10,16 +11,12 @@ redacted by :func:`redact_sensitive`.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import sys
 import typing
 from collections.abc import Mapping, MutableMapping
 from logging.handlers import RotatingFileHandler
-
-import structlog
-from structlog.dev import ConsoleRenderer
-from structlog.processors import JSONRenderer
-from structlog.stdlib import ProcessorFormatter
 
 LOGGER_NAME = "calm_client"
 REDACTED = "<redacted>"
@@ -48,7 +45,7 @@ def _redact_value(value: typing.Any) -> typing.Any:
 def redact_sensitive(
     _logger: typing.Any, _method: str, event_dict: MutableMapping[str, typing.Any]
 ) -> MutableMapping[str, typing.Any]:
-    """Structlog processor that masks credentials in ``headers`` and ``body`` fields."""
+    """Mask credentials in an event's ``headers`` and ``body`` fields (usable as a structlog processor)."""
     headers = event_dict.get("headers")
     if isinstance(headers, Mapping):
         event_dict["headers"] = {
@@ -60,12 +57,17 @@ def redact_sensitive(
 
 
 def configure_logging(*, level: int = logging.WARNING) -> None:
-    """Configure structlog with the given log level (used by the CLI).
+    """Configure structlog with the given log level (used by the CLI; needs the ``cli`` extra).
 
     Sets up:
     1. A RotatingFileHandler writing JSON logs to 'app.log' (10MB, 5 backups).
     2. A StreamHandler writing colored logs to sys.stdout (for redirection).
     """
+    import structlog
+    from structlog.dev import ConsoleRenderer
+    from structlog.processors import JSONRenderer
+    from structlog.stdlib import ProcessorFormatter
+
     # Configure the standard logging module
     # We do NOT use basicConfig because we want specific handlers
 
@@ -110,8 +112,7 @@ def configure_logging(*, level: int = logging.WARNING) -> None:
 
     # 4. Third-party Noise Reduction
     logging.getLogger("asyncio").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp").setLevel(logging.WARNING)
 
     # 5. Structlog Configuration
     processors = [
@@ -136,25 +137,49 @@ def configure_logging(*, level: int = logging.WARNING) -> None:
     )
 
 
-_library_logger: typing.Any = None
+class _StdlibLogger:
+    """Keyword-style logger on the stdlib ``logging`` module, for library use without structlog.
+
+    ``logger.info("event", key=value)`` becomes the message ``event='event' key='value'``
+    on the ``calm_client`` logger, with credentials redacted first.
+    """
+
+    def __init__(self, name: str) -> None:
+        self._logger = logging.getLogger(name)
+
+    def _log(self, level: int, event: str, **fields: typing.Any) -> None:
+        if not self._logger.isEnabledFor(level):
+            return
+        exc_info = fields.pop("exc_info", None)
+        redacted = redact_sensitive(None, "", {"event": event, **fields})
+        message = " ".join(f"{key}={value!r}" for key, value in redacted.items())
+        self._logger.log(level, message, exc_info=exc_info)
+
+    def debug(self, event: str, **fields: typing.Any) -> None:
+        self._log(logging.DEBUG, event, **fields)
+
+    def info(self, event: str, **fields: typing.Any) -> None:
+        self._log(logging.INFO, event, **fields)
+
+    def warning(self, event: str, **fields: typing.Any) -> None:
+        self._log(logging.WARNING, event, **fields)
+
+    def error(self, event: str, **fields: typing.Any) -> None:
+        self._log(logging.ERROR, event, **fields)
+
+
+_stdlib_logger = _StdlibLogger(LOGGER_NAME)
 
 
 def _resolve_logger() -> typing.Any:
-    """Return the structlog logger when the CLI configured structlog, else a stdlib-backed one."""
-    global _library_logger
+    """Return the structlog logger when the CLI configured structlog, else the stdlib-backed one."""
+    try:
+        structlog = importlib.import_module("structlog")
+    except ImportError:
+        return _stdlib_logger
     if structlog.is_configured():
         return structlog.get_logger(LOGGER_NAME)
-    if _library_logger is None:
-        _library_logger = structlog.wrap_logger(
-            logging.getLogger(LOGGER_NAME),
-            processors=[
-                structlog.stdlib.filter_by_level,
-                redact_sensitive,
-                structlog.processors.KeyValueRenderer(key_order=["event"]),
-            ],
-            wrapper_class=structlog.stdlib.BoundLogger,
-        )
-    return _library_logger
+    return _stdlib_logger
 
 
 class _LazyLogger:

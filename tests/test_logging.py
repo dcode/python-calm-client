@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from httpx import Response
 
 from calm_client import CalmClient
 from calm_client.logging import REDACTED, redact_sensitive
+
+if TYPE_CHECKING:
+    from tests.conftest import HttpMock
 
 
 def test_redacts_headers_and_body_fields() -> None:
@@ -34,9 +36,9 @@ def test_redacts_raw_json_bodies_with_tokens() -> None:
 
 @pytest.mark.asyncio
 async def test_library_logs_via_stdlib_without_secrets(
-    respx_mock: Any, caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
+    http_mock: HttpMock, caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    respx_mock.post("https://oneid.calm.com/oauth/token").mock(return_value=Response(403, json={"error": "denied"}))
+    http_mock.post("https://oneid.calm.com/oauth/token", status=403, payload={"error": "denied"})
     caplog.set_level(logging.DEBUG, logger="calm_client")
 
     async with CalmClient("secret-token") as client:
@@ -84,3 +86,35 @@ def test_configure_logging_writes_redacted_json_log(restore_logging: Any) -> Non
     assert "http_request" in log_text
     assert "secret" not in log_text
     assert '"pw"' not in log_text
+
+
+def test_library_logger_needs_no_structlog(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    import sys
+
+    from calm_client.logging import _resolve_logger, _stdlib_logger, logger
+
+    # a None entry makes `import structlog` fail, as on an install without the cli extra
+    monkeypatch.setitem(sys.modules, "structlog", None)
+    assert _resolve_logger() is _stdlib_logger
+    caplog.set_level(logging.DEBUG, logger="calm_client")
+    logger.debug("http_request", method="GET", headers={"Cookie": "calm-user-token=secret"})
+    logger.info("get_feed", category="sleep")
+    logger.warning("odd")
+    logger.error("bad", status=500)
+
+    messages = [r.getMessage() for r in caplog.records if r.name == "calm_client"]
+    assert messages == [
+        f"event='http_request' method='GET' headers={{'Cookie': '{REDACTED}'}}",
+        "event='get_feed' category='sleep'",
+        "event='odd'",
+        "event='bad' status=500",
+    ]
+
+
+def test_library_logger_skips_disabled_levels(caplog: pytest.LogCaptureFixture) -> None:
+    from calm_client.logging import _stdlib_logger
+
+    caplog.set_level(logging.WARNING, logger="calm_client")
+    _stdlib_logger.debug("quiet", value=object())
+    _stdlib_logger.error("loud", exc_info=False)
+    assert [r.getMessage() for r in caplog.records if r.name == "calm_client"] == ["event='loud'"]

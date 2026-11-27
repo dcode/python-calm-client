@@ -8,13 +8,15 @@ Inspired by ``google.oauth2.credentials.Credentials``.
 
 from __future__ import annotations
 
+import json
 import time
+import typing
 import uuid
 
-import httpx
+import aiohttp
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .exceptions import CalmAuthError
+from .exceptions import CalmAuthError, CalmConnectionError
 
 
 class Credentials(BaseModel):
@@ -78,13 +80,18 @@ class Credentials(BaseModel):
     # Refresh
     # ------------------------------------------------------------------
 
-    async def refresh(self, client: httpx.AsyncClient) -> None:
+    async def refresh(self, session: aiohttp.ClientSession, *, user_agent: str | None = None) -> None:
         """Use the refresh token to obtain a new access token.
 
         Mutates this instance in-place with the new token data.
 
+        Args:
+            session: The aiohttp session to send the refresh request with.
+            user_agent: A User-Agent for this request; None keeps the session's own.
+
         Raises:
-            CalmAuthError: If no refresh token or the refresh request fails.
+            CalmAuthError: If there is no refresh token or Auth0 rejects it.
+            CalmConnectionError: If Auth0 cannot be reached.
         """
         if not self.refresh_token:
             raise CalmAuthError("Cannot refresh: no refresh_token available. Please login again.")
@@ -96,25 +103,21 @@ class Credentials(BaseModel):
             "client_id": AUTH0_CLIENT_ID,
             "refresh_token": self.refresh_token,
         }
+        headers = {"Content-Type": "application/json"}
+        if user_agent is not None:
+            headers["User-Agent"] = user_agent
 
         try:
-            response = await client.post(
-                AUTH0_TOKEN_URL,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-        except httpx.HTTPError as e:
-            raise CalmAuthError(f"Network error during token refresh: {e}") from e
+            async with session.post(AUTH0_TOKEN_URL, json=payload, headers=headers) as response:
+                status = response.status
+                text = await response.text()
+        except (aiohttp.ClientError, TimeoutError) as e:
+            raise CalmConnectionError(f"Network error during token refresh: {e}") from e
 
-        if response.status_code != 200:
-            try:
-                err = response.json()
-                desc = err.get("error_description", err.get("error", "Unknown"))
-            except Exception:
-                desc = response.text[:200]
-            raise CalmAuthError(f"Token refresh failed: {desc}")
+        if status != 200:
+            raise CalmAuthError(f"Token refresh failed: {_auth0_error(text)}")
 
-        data = response.json()
+        data = _json_object(text)
         new_token = data.get("access_token")
         if not new_token:
             raise CalmAuthError("Refresh response missing access_token.")
@@ -149,3 +152,20 @@ class Credentials(BaseModel):
         status = "valid" if self.valid else "expired"
         refresh = "yes" if self.can_refresh else "no"
         return f"<Credentials status={status} refresh={refresh}>"
+
+
+def _json_object(text: str) -> dict[str, typing.Any]:
+    """Parse a JSON object body, or return an empty dict when it is not one."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _auth0_error(text: str) -> str:
+    """Return the description from an Auth0 error body, or the start of the raw body."""
+    err = _json_object(text)
+    if err:
+        return str(err.get("error_description", err.get("error", "Unknown error")))
+    return text[:200]

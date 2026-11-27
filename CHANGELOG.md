@@ -4,42 +4,76 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+This release breaks the constructor and `Credentials.refresh()`, so it should ship as
+0.5.0. It makes the changes the Music Assistant review of the Calm provider asked for.
+
+### Changed
+
+- **Breaking:** HTTP now goes through `aiohttp` instead of `httpx`. `CalmClient` takes
+    `session=` (an `aiohttp.ClientSession`, such as an application's shared session) in
+    place of the `httpx.AsyncClient` it took as its second argument; `session` and the new
+    `user_agent` are keyword-only. A caller's session is left open by `close()`. Without
+    one, the client opens its own session on the first request (so it can be built outside
+    an event loop), with a 30 second timeout, and closes it in `close()`.
+- **Breaking:** `Credentials.refresh()` takes an `aiohttp.ClientSession` (and an optional
+    `user_agent`) instead of an `httpx.AsyncClient`.
+- **Breaking:** a network failure during `login()` or a token refresh raises
+    `CalmConnectionError` instead of `CalmAuthError`, so callers don't log in again when
+    Calm is only unreachable.
+- `httpx` and `structlog` are no longer dependencies of the library. The library logs
+    through the standard `logging` module; `structlog` moved to the `cli` extra.
+- The auth strategies no longer set a User-Agent. `CalmClient` sets it: `user_agent=`
+    when given, otherwise `DEFAULT_USER_AGENT` (the desktop Chrome string used before) on a
+    session the client opened, and nothing on a caller's session, so that session's own
+    User-Agent is kept.
+
+### Added
+
+- `CalmNotFoundError` (HTTP 404, or a guide missing from its program) and
+    `CalmConnectionError` (connection errors, timeouts, truncated or non-JSON bodies). Both
+    subclass `CalmAPIError`, so existing `except CalmAPIError` handlers still catch them.
+- `CalmAPIError.status`: the HTTP status, or `None` when no response arrived.
+- `CalmError` (the base class) and `DEFAULT_USER_AGENT` are exported from `calm_client`.
+- `CalmClient.session`: the aiohttp session in use.
+
 ## [0.4.1] — 2026-10-24
 
 ### Added
 
 - An `audio/*` type that is neither ranked nor a known alias (for example `audio/flac`) is
-  logged once per process on the `calm_client` logger, with where to report it. It still
-  ranks last and plays when nothing known exists, so behaviour is unchanged.
+    logged once per process on the `calm_client` logger, with where to report it. It still
+    ranks last and plays when nothing known exists, so behaviour is unchanged.
 
 ## [0.4.0] — 2026-10-24
 
 ### Added
 
 - `AudioQuality` (`compact`, `balanced`, `highest`) chooses which audio format to prefer.
-  Calm serves AAC (128 kbps), Ogg Vorbis (about 256 kbps) and 24-bit WAV, roughly 30, 50
-  and 500 MB per 30 minutes. `Guide` and `PackItem` gain `pick_audio(quality)`, `Guide`
-  gains `stream_url_for(quality)`, and `calm play` / `calm browse` take `--quality`. The
-  default is unchanged.
+    Calm serves AAC (128 kbps), Ogg Vorbis (about 256 kbps) and 24-bit WAV, roughly 30, 50
+    and 500 MB per 30 minutes. `Guide` and `PackItem` gain `pick_audio(quality)`, `Guide`
+    gains `stream_url_for(quality)`, and `calm play` / `calm browse` take `--quality`. The
+    default is unchanged.
 - `artist` on `PackItem`, `Program` and `Guide` returns the credited narrator or composer
-  as a `Narrator`, so consumers no longer re-derive it from different fields.
+    as a `Narrator`, so consumers no longer re-derive it from different fields.
 - `PackItem.image_url`, `Narrator.image_url`, `PackItem.display_subtitle`, and `duration`
-  (seconds of the preferred audio asset) on `PackItem` and `Guide`.
+    (seconds of the preferred audio asset) on `PackItem` and `Guide`.
 
 ### Fixed
 
 - Audio mime types are canonicalised before ranking: `audio/wave`, `audio/x-wav` and
-  `audio/mp4a-latm`, which Calm sends, used to rank last. Case and parameters are ignored.
+    `audio/mp4a-latm`, which Calm sends, used to rank last. Case and parameters are ignored.
 - `duration_str` and the browse track list used the first asset, which could be a wav or a
-  video, instead of the audio asset that plays.
+    video, instead of the audio asset that plays.
 
 ## [0.3.0] — 2026-10-23
 
 ### Added
 
 - `CalmRateLimitError`, a `CalmAPIError` subclass raised on HTTP 429. Its `retry_after`
-  holds the wait in seconds when Calm sent a numeric `Retry-After` header (otherwise
-  `None`), so integrations can back off instead of treating it as a generic failure.
+    holds the wait in seconds when Calm sent a numeric `Retry-After` header (otherwise
+    `None`), so integrations can back off instead of treating it as a generic failure.
 
 ## [0.2.1] — 2026-10-22
 
@@ -47,76 +81,85 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - `CalmClient.search()` takes optional single-value `category` and `duration` filters (ids from `search/v2/config`, e.g. `soundscapes`, `ten_min`); `list_narrators()` uses `category=narrators_artists` to return narrator-scoped results.
 - `CalmClient.list_narrators()` returns the narrators and artists catalog (Calm has no
-  narrator index; this searches `narrator`, which Calm answers with the full list).
+    narrator index; this searches `narrator`, which Calm answers with the full list).
 - `calm browse` has a **Narrators & Artists** sidebar entry: a fast name list (not an
-  art grid) with A/B/C section headers; selecting one opens that narrator's feed. The
-  filter box searches server-side, so you can find any narrator by name even though
-  Calm's search only returns a capped starter page (~200, alphabetical) up front.
+    art grid) with A/B/C section headers; selecting one opens that narrator's feed. The
+    filter box searches server-side, so you can find any narrator by name even though
+    Calm's search only returns a capped starter page (~200, alphabetical) up front.
 
 ### Changed
 
 - Album-art downloads in the browse grid are capped at 6 concurrent, so large packs no
-  longer open hundreds of connections at once.
+    longer open hundreds of connections at once.
 
 ## [0.2.0] — 2026-10-22
 
 ### Added
 
 - `CalmClient.get_playlists()` returns the user's playlists ("My Collections");
-  `add_fave()` / `remove_fave()` favorite or unfavorite a guide, program, feed, pack
-  or content item. The browse TUI's My Collections card now opens your playlists
-  (contents hydrated with titles), alongside Favorites on the Home screen.
+    `add_fave()` / `remove_fave()` favorite or unfavorite a guide, program, feed, pack
+    or content item. The browse TUI's My Collections card now opens your playlists
+    (contents hydrated with titles), alongside Favorites on the Home screen.
 - `CalmClient.browse()` walks the catalog as a tree of feeds, packs, programs and
-  guides, so integrations don't have to interpret feeds themselves.
+    guides, so integrations don't have to interpret feeds themselves.
 - `CalmClient.get_pack()`, `get_guide()` (a guide with its program and lock flags) and
-  `get_guide_summary()`.
+    `get_guide_summary()`.
 - `MediaType` and `PackItem.media_type` / `PackItem.path` classify catalog entries;
-  `is_available()` tells whether the account can play them.
+    `is_available()` tells whether the account can play them.
 - `Guide.audio_asset` / `PackItem.audio_asset` pick the preferred audio format.
 - Models keep more of Calm's data: lock flags in both spellings (`is_unlocked`/`unlocked`,
-  `is_free`/`free`), program narrators and cover images, guide positions and narrators,
-  and feed tags.
+    `is_free`/`free`), program narrators and cover images, guide positions and narrators,
+    and feed tags.
 
 ### Changed
 
 - **Breaking:** the CLI/TUI dependencies (`cyclopts`, `rich`, `textual`,
-  `platformdirs`) moved to a new `cli` extra, so the library installs only `httpx`,
-  `pydantic` and `structlog`. Install the CLI with `pipx install 'calm-client[player]'`
-  (or `[cli]` without audio). The `player` extra now includes `cli`.
+    `platformdirs`) moved to a new `cli` extra, so the library installs only `httpx`,
+    `pydantic` and `structlog`. Install the CLI with `pipx install 'calm-client[player]'`
+    (or `[cli]` without audio). The `player` extra now includes `cli`.
 - `calm` (and `python -m calm_client`) explains which extra to install instead of
-  failing with an ImportError.
+    failing with an ImportError.
 - `uv sync` / `uv run calm` in a checkout now include the `player` extra (via the dev
-  dependency group).
+    dependency group).
 - Library logging goes through the stdlib `calm_client` logger, and credentials are
-  redacted from all log output.
+    redacted from all log output.
 
 ### Fixed
 
 - `calm browse` now opens narrators/artists: a search result of type `narrator` opens
-  that narrator's feed (`packs/feeds/narrator-<id>`) instead of failing. Guide search
-  results keep their `guide_id`, so playback starts on the right guide.
+    that narrator's feed (`packs/feeds/narrator-<id>`) instead of failing. Guide search
+    results keep their `guide_id`, so playback starts on the right guide.
+
 - Breathe is removed from the categories (its feed holds only breathe-bubble exercises,
-  which have no audio); opening any non-audio entry shows a notice instead of a 404.
+    which have no audio); opening any non-audio entry shows a notice instead of a 404.
+
 - "For Work" and "Kids" use the full collection feeds the apps show, not the smaller
-  `work`/`kids` feeds.
+    `work`/`kids` feeds.
+
 - Rows with nothing to open (e.g. "Resources", which is just links) are hidden.
+
 - Catalog cards wrap long titles onto a second line instead of truncating, and drop the
-  stray blank line above art-less cards.
+    stray blank line above art-less cards.
+
 - `calm browse` Home: the Favorites card opens your favorites (it was always empty);
-  Recently Played and My Collections, which Calm's apps fill in through endpoints the
-  client doesn't have, are hidden instead of showing empty; untitled rows get their
-  names ("Navigation", "Today's Daily Calm"); entries that link to a feed or pack open
-  it; and a guide entry such as today's Daily Calm plays that guide instead of the first
-  one in its program.
+    Recently Played and My Collections, which Calm's apps fill in through endpoints the
+    client doesn't have, are hidden instead of showing empty; untitled rows get their
+    names ("Navigation", "Today's Daily Calm"); entries that link to a feed or pack open
+    it; and a guide entry such as today's Daily Calm plays that guide instead of the first
+    one in its program.
+
 - The `calm browse` sidebar icons are all double-width, so the category names line up.
+
 - `calm browse` showed at most about 10 items per collection: feeds only embed a
-  preview of each pack. Opening a pack now loads all of its items (e.g. 263 Sleep
-  Stories in Fiction instead of 10), and cards show "10+ items" until then.
+    preview of each pack. Opening a pack now loads all of its items (e.g. 263 Sleep
+    Stories in Fiction instead of 10), and cards show "10+ items" until then.
+
 - `Guide.stream_url` prefers compressed audio over wav and no longer picks a video
-  asset when audio is available.
+    asset when audio is available.
 
 - A missing libmpv is reported with install instructions instead of an `OSError`
-  traceback; the python-mpv hint no longer prints a literal `\n`.
+    traceback; the python-mpv hint no longer prints a literal `\n`.
+
 - `get_feed()` accepts the current packs-based feed response.
 
 ### Removed

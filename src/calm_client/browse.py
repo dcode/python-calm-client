@@ -1515,16 +1515,19 @@ class BrowseApp(App):
             return self._art_cache[cache_key]
 
         try:
-            import httpx
+            import aiohttp
 
             # bound concurrency: a 200+ item grid otherwise opens that many sockets at once
-            async with self._art_semaphore, httpx.AsyncClient() as http:
-                resp = await http.get(url, timeout=10, follow_redirects=True)
-                resp.raise_for_status()
-                pixels = _resize_image(resp.content, width=width, height=height)
-                if pixels:
-                    self._art_cache[cache_key] = pixels
-                return pixels
+            async with (
+                self._art_semaphore,
+                aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as http,
+                http.get(url, raise_for_status=True) as resp,
+            ):
+                content = await resp.read()
+            pixels = _resize_image(content, width=width, height=height)
+            if pixels:
+                self._art_cache[cache_key] = pixels
+            return pixels
         except Exception:
             log.debug("Failed to fetch art from %s", url, exc_info=True)
             return None
