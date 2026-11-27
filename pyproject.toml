@@ -17,7 +17,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 # Library only: the CLI/TUI and audio playback are optional extras.
-dependencies = ["httpx", "pydantic", "structlog"]
+dependencies = ["aiohttp>=3.10", "pydantic"]
 
 description     = "Async Python client for Calm.com internal API"
 dynamic         = ["version"]
@@ -34,7 +34,7 @@ Source        = "https://github.com/dcode/python-calm-client"
 
 [project.optional-dependencies]
 # `calm` command line and TUI browser
-cli = ["cyclopts", "platformdirs", "rich", "textual>=7.5.0"]
+cli = ["cyclopts", "platformdirs", "rich", "structlog", "textual>=7.5.0"]
 # everything in `cli`, plus audio playback (needs the mpv/libmpv system package)
 player = ["calm-client[cli]", "Pillow>=10.0", "python-mpv>=1.0.8", "rich-pixels>=3.0.0"]
 
@@ -42,6 +42,7 @@ player = ["calm-client[cli]", "Pillow>=10.0", "python-mpv>=1.0.8", "rich-pixels>
 [dependency-groups]
 dev = [
   # the project itself with every extra, so `uv run calm` can play audio in a checkout
+  "aioresponses>=0.7.8",
   "calm-client[player]",
   "hatch>=1.15.1",
   "mypy>=1.19.1",
@@ -52,7 +53,6 @@ dev = [
   "pytest-deepassert",
   "pytest-github-actions-annotate-failures>=0.4.2",
   "pytest>=8.4.2",
-  "respx>=0.22.0",
   "ruff>=0.15.1",
 ]
 

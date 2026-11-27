@@ -11,7 +11,7 @@ search for content, and stream audio — all from your terminal.
 ## Features
 
 - **CLI + TUI** — Browse, search, and play Calm content from the terminal
-- **Async API** — Fully async Python client built on `httpx`
+- **Async API** — Fully async Python client built on `aiohttp`; bring your own session
 - **Type Safe** — Comprehensive Pydantic models with `py.typed` support
 - **Audio Playback** — Stream meditation and sleep audio via `mpv`
 - **Auth** — Email/password login with automatic token refresh
@@ -39,14 +39,14 @@ If you want to use `calm-client` as a Python library in your own project:
 pip install calm-client
 ```
 
-The plain package installs only the API client and its few dependencies (`httpx`,
-`pydantic`, `structlog`). The `cli` and `player` extras add the terminal UI and audio
-playback.
+The plain package installs only the API client and its two dependencies (`aiohttp`
+and `pydantic`). It logs through the standard `logging` module. The `cli` and `player`
+extras add the terminal UI (with `structlog` for its log output) and audio playback.
 
-| Install | You get |
-|---|---|
-| `calm-client` | Async API client library |
-| `calm-client[cli]` | + `calm` command and TUI browser |
+| Install               | You get                                         |
+| --------------------- | ----------------------------------------------- |
+| `calm-client`         | Async API client library                        |
+| `calm-client[cli]`    | + `calm` command and TUI browser                |
 | `calm-client[player]` | + audio playback in `calm play` / `calm browse` |
 
 ## Requirements
@@ -54,7 +54,7 @@ playback.
 - **Python 3.12+** - for modern typing, async, and f-strings
 
 - **mpv** — Required for `calm play` and `calm browse` audio features (the `player`
-  extra loads mpv's `libmpv` library)
+    extra loads mpv's `libmpv` library)
 
     ```bash
     # Ubuntu/Debian

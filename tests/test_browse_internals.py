@@ -4,13 +4,13 @@ Each test drives one app session through several related code paths, since start
 Textual app is the expensive part.
 """
 
+from __future__ import annotations
+
 import io
-from collections.abc import Generator
-from typing import Any
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from httpx import Response
 from PIL import Image
 from textual.widgets import Input, Label, ListView, ProgressBar, Static
 
@@ -18,6 +18,11 @@ from calm_client import browse
 from calm_client.browse import BrowseApp, CatalogCard, NowPlayingBar, TrackItem, _resize_image, run_browse
 from calm_client.client import CalmClient
 from calm_client.models import Asset, AudioQuality, FeedResponse, Guide, ImageAsset, Pack, PackItem, Program
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from tests.conftest import HttpMock
 
 
 def _png() -> bytes:
@@ -376,9 +381,9 @@ async def test_category_load_error(client: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
-async def test_album_art(client: MagicMock, respx_mock: Any) -> None:
-    route = respx_mock.get("http://img/ok.png").mock(return_value=Response(200, content=_png()))
-    respx_mock.get("http://img/missing.png").mock(return_value=Response(404))
+async def test_album_art(client: MagicMock, http_mock: HttpMock) -> None:
+    route = http_mock.get("http://img/ok.png", status=200, body=_png())
+    http_mock.get("http://img/missing.png", status=404)
 
     app = BrowseApp(client)
     async with app.run_test() as pilot:

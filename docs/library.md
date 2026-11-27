@@ -43,7 +43,27 @@ The main entry point for the API.
 **Constructor:**
 
 ```python
-CalmClient(credentials: Credentials | str | None = None)
+CalmClient(
+    credentials: Credentials | str | None = None,
+    *,
+    session: aiohttp.ClientSession | None = None,
+    user_agent: str | None = None,
+)
+```
+
+- `session`: send requests through your own aiohttp session, such as an
+    application's shared one. You own it: `close()` leaves it open. Without one, the
+    client opens a session on its first request and closes it in `close()`.
+- `user_agent`: the User-Agent to send. When you pass a session and no user agent,
+    your session's own User-Agent is used. When the client opens its own session and you
+    pass none, it sends `DEFAULT_USER_AGENT` (a desktop browser string, as the Calm web
+    app sends; whether Calm requires one has not been verified).
+
+```python
+async with aiohttp.ClientSession() as session:
+    client = CalmClient(creds, session=session, user_agent="MyApp/1.0")
+    feed = await client.get_feed("sleep")
+    await client.close()  # session stays open
 ```
 
 **Methods:**
@@ -78,11 +98,11 @@ CalmClient(credentials: Credentials | str | None = None)
 `browse()` gives integrations (media servers, voice assistants, …) one tree to walk
 instead of interpreting feeds themselves:
 
-| Path | Entries |
-|------|---------|
-| `""` | the categories in `DEFAULT_CATEGORIES`, as feeds |
-| `"feed/<feed_id>"` | the feed's packs that hold guides or programs, then its tags |
-| `"pack/<pack_class>"` | the pack's items |
+| Path                  | Entries                                                      |
+| --------------------- | ------------------------------------------------------------ |
+| `""`                  | the categories in `DEFAULT_CATEGORIES`, as feeds             |
+| `"feed/<feed_id>"`    | the feed's packs that hold guides or programs, then its tags |
+| `"pack/<pack_class>"` | the pack's items                                             |
 
 Each entry has a `media_type`: `TRACK` (a guide), `ALBUM` (a program), `FOLDER` (a
 sub-feed or sub-pack; browse its `path` next) or `UNKNOWN` (promos and other entries
@@ -126,13 +146,36 @@ own, so content with no flags at all counts as available.
 
 ## Error Handling
 
+Every error the client raises derives from `CalmError`. Network failures never escape
+as `aiohttp` errors.
+
+| Exception             | Raised when                                                                    |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `CalmAuthError`       | Calm answers 401, or Auth0 rejects a login or token refresh                    |
+| `CalmNotFoundError`   | Calm answers 404, or a guide is not in the program Calm names for it           |
+| `CalmRateLimitError`  | Calm answers 429; `retry_after` holds the wait in seconds, if numeric          |
+| `CalmConnectionError` | Calm cannot be reached: connection errors, timeouts, broken or non-JSON bodies |
+| `CalmAPIError`        | Any other HTTP error; the base of the three above                              |
+
+`CalmAPIError.status` holds the HTTP status, or `None` when no response arrived.
+
 ```python
-from calm_client import CalmAuthError, CalmAPIError
+from calm_client import CalmAPIError, CalmAuthError, CalmConnectionError, CalmNotFoundError
 
 try:
-    await client.get_feed("invalid")
+    program = await client.get_program(program_id)
 except CalmAuthError:
-    print("Authentication failed")
+    ...  # log in again
+except CalmNotFoundError:
+    ...  # the program was removed
+except CalmConnectionError:
+    ...  # Calm is unreachable; try later
 except CalmAPIError as e:
-    print(f"API Error: {e}")
+    print(f"API error {e.status}: {e}")
 ```
+
+## Logging
+
+The library logs to the standard `logging` module under the `calm_client` logger and is
+silent unless your application configures logging. Headers, passwords and tokens are
+redacted before anything is logged.

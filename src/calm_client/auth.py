@@ -33,12 +33,10 @@ class AuthStrategy(typing.Protocol):
         ...
 
 
-# Common headers for all strategies
+# Common headers for all strategies. The User-Agent is not here: ``CalmClient`` sets it,
+# so a caller-supplied HTTP session keeps its own unless the caller asks otherwise.
 _COMMON_HEADERS: dict[str, str] = {
     "x-calm-platform": "web",
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    ),
 }
 
 

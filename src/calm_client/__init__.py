@@ -2,8 +2,16 @@
 
 from .auth import AuthStrategy, BearerAuth, CookieAuth
 from .client import CalmClient
+from .constants import DEFAULT_USER_AGENT
 from .credentials import Credentials
-from .exceptions import CalmAPIError, CalmAuthError, CalmRateLimitError
+from .exceptions import (
+    CalmAPIError,
+    CalmAuthError,
+    CalmConnectionError,
+    CalmError,
+    CalmNotFoundError,
+    CalmRateLimitError,
+)
 from .models import (
     AudioQuality,
     Feed,
@@ -25,12 +33,16 @@ from .models import (
 )
 
 __all__ = [
+    "DEFAULT_USER_AGENT",
     "AudioQuality",
     "AuthStrategy",
     "BearerAuth",
     "CalmAPIError",
     "CalmAuthError",
     "CalmClient",
+    "CalmConnectionError",
+    "CalmError",
+    "CalmNotFoundError",
     "CalmRateLimitError",
     "CookieAuth",
     "Credentials",

@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import TYPE_CHECKING, Any
 
-import httpx
+import aiohttp
 
 from calm_client.auth import AuthStrategy, auth_for
-from calm_client.credentials import Credentials
-from calm_client.exceptions import CalmAPIError, CalmAuthError, CalmRateLimitError
+from calm_client.constants import DEFAULT_USER_AGENT
+from calm_client.credentials import Credentials, _auth0_error, _json_object
+from calm_client.exceptions import (
+    CalmAPIError,
+    CalmAuthError,
+    CalmConnectionError,
+    CalmNotFoundError,
+    CalmRateLimitError,
+)
 from calm_client.logging import logger as logger
 from calm_client.models import (
     Feed,
@@ -24,6 +32,9 @@ from calm_client.models import (
     SearchResponse,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 DEFAULT_CATEGORIES: list[tuple[str, str, str]] = [
     # (api_slug, emoji, display_name)
     ("home", "🏠", "Home"),
@@ -38,6 +49,9 @@ DEFAULT_CATEGORIES: list[tuple[str, str, str]] = [
     ("movement", "🏃", "Movement"),
     # "breathe" is omitted: its feed holds only breathe-bubble exercises, which have no audio to play
 ]
+
+# Timeout for the session calm-client opens itself; a caller's session keeps its own.
+DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 
 class CalmClient:
@@ -57,6 +71,12 @@ class CalmClient:
             creds = Credentials.model_validate(saved_data)
             async with CalmClient(creds) as client:
                 feed = await client.get_feed("sleep")  # auto-refreshes if expired
+
+        Sharing an application's aiohttp session::
+
+            client = CalmClient(creds, session=app_session, user_agent="MyApp/1.0")
+            feed = await client.get_feed("sleep")
+            await client.close()  # leaves app_session open
     """
 
     BASE_URL = "https://www.calm.com/webapi/authproxy"
@@ -80,14 +100,22 @@ class CalmClient:
     def __init__(
         self,
         credentials: Credentials | str | None = None,
-        client: httpx.AsyncClient | None = None,
-    ):
+        *,
+        session: aiohttp.ClientSession | None = None,
+        user_agent: str | None = None,
+    ) -> None:
         """Initialize the client.
 
         Args:
             credentials: A ``Credentials`` instance, a raw token string, or
                 None for unauthenticated operations (e.g. login flow).
-            client: An optional pre-configured ``httpx.AsyncClient``.
+            session: An aiohttp session to send requests with, such as an
+                application's shared session. The caller owns it: ``close()``
+                leaves it open. Without one, the client opens its own session on
+                the first request and closes it in ``close()``.
+            user_agent: The User-Agent to send. With a caller's session, None keeps
+                that session's own User-Agent; without one, None sends
+                ``DEFAULT_USER_AGENT``.
         """
         # Normalise input to a Credentials object
         if isinstance(credentials, str):
@@ -98,7 +126,27 @@ class CalmClient:
             self._credentials = Credentials(token="")
 
         self._auth: AuthStrategy = auth_for(self._credentials)
-        self._client = client or httpx.AsyncClient()
+        self._session = session
+        self._owns_session = session is None
+        self._user_agent = user_agent
+
+    @property
+    def session(self) -> aiohttp.ClientSession:
+        """The aiohttp session requests go through, opened on first use when the client owns it."""
+        if self._session is None:
+            # created lazily: aiohttp needs a running event loop to build a session
+            self._session = aiohttp.ClientSession(
+                headers={"User-Agent": self._user_agent or DEFAULT_USER_AGENT},
+                timeout=DEFAULT_TIMEOUT,
+            )
+        return self._session
+
+    def _headers(self, extra: Mapping[str, str] | None = None) -> dict[str, str]:
+        """Build per-request headers, adding the User-Agent only when the caller set one."""
+        headers = dict(extra or {})
+        if self._user_agent is not None:
+            headers["User-Agent"] = self._user_agent
+        return headers
 
     @property
     def credentials(self) -> Credentials:
@@ -114,6 +162,7 @@ class CalmClient:
 
         Raises:
             CalmAuthError: If Auth0 rejects the credentials or ROPC is disabled.
+            CalmConnectionError: If Auth0 cannot be reached.
         """
         from .constants import (
             AUTH0_AUDIENCE,
@@ -140,38 +189,35 @@ class CalmClient:
             body=payload,
         )
         try:
-            response = await self._client.post(
+            async with self.session.post(
                 AUTH0_TOKEN_URL,
                 json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-        except httpx.HTTPError as e:
-            raise CalmAuthError(f"Network error during login: {e}") from e
+                headers=self._headers({"Content-Type": "application/json"}),
+            ) as response:
+                status = response.status
+                text = await response.text()
+        except (aiohttp.ClientError, TimeoutError) as e:
+            raise CalmConnectionError(f"Network error during login: {e}") from e
 
         logger.debug(
             "login()|http_response",
             method="POST",
             url=AUTH0_TOKEN_URL,
-            status=response.status_code,
-            body=response.text[:200],
+            status=status,
+            body=text[:200],
         )
 
-        if response.status_code != 200:
+        if status != 200:
             logger.error(
                 "login()|http_response",
                 method="POST",
                 url=AUTH0_TOKEN_URL,
-                status=response.status_code,
-                body=response.text[:200],
+                status=status,
+                body=text[:200],
             )
-            try:
-                err = response.json()
-                desc = err.get("error_description", err.get("error", "Unknown error"))
-            except Exception:
-                desc = response.text[:200]
-            raise CalmAuthError(f"Auth0 login failed: {desc}")
+            raise CalmAuthError(f"Auth0 login failed: {_auth0_error(text)}")
 
-        data = response.json()
+        data = _json_object(text)
         if "access_token" not in data:
             raise CalmAuthError("Auth0 response did not contain an access_token.")
 
@@ -222,10 +268,19 @@ class CalmClient:
     async def _ensure_valid_token(self) -> None:
         """Refresh the access token if expired and a refresh token exists."""
         if not self._credentials.valid and self._credentials.can_refresh:
-            await self._credentials.refresh(self._client)
+            await self._credentials.refresh(self.session, user_agent=self._user_agent)
             self._auth = auth_for(self._credentials)
 
     async def _request(self, method: str, endpoint: str, **kwargs: Any) -> Any:
+        """Send an authenticated request to the web proxy and return its JSON body.
+
+        Raises:
+            CalmAuthError: On HTTP 401, or when the token refresh is rejected.
+            CalmNotFoundError: On HTTP 404.
+            CalmRateLimitError: On HTTP 429.
+            CalmAPIError: On any other HTTP error status.
+            CalmConnectionError: When Calm cannot be reached or sends a body that is not JSON.
+        """
         url = f"{self.BASE_URL}/{endpoint}"
 
         # Auto-refresh if needed
@@ -234,55 +289,45 @@ class CalmClient:
         # Build headers via auth strategy
         headers: dict[str, Any] = {}
         self._auth.before_request(headers)
-        if "headers" in kwargs:
-            headers.update(kwargs.pop("headers"))
+        headers.update(self._headers(kwargs.pop("headers", None)))
 
         # Handle per-request cookies: only pass if explicitly provided
         cookies = kwargs.pop("cookies", None)
+        if cookies:
+            kwargs["cookies"] = cookies
+
+        logger.debug(
+            "http_request",
+            method=method,
+            url=url,
+            headers=headers,
+            body=kwargs.get("json") or kwargs.get("data"),
+        )
+        try:
+            async with self.session.request(method, url, headers=headers, **kwargs) as response:
+                status = response.status
+                text = await response.text()
+                retry_after = _retry_after(response.headers)
+        except (aiohttp.ClientError, TimeoutError) as e:
+            logger.debug("http_transport_error", method=method, url=url, error=repr(e))
+            raise CalmConnectionError(f"Network error on {method} {endpoint}: {e!r}") from e
+
+        logger.debug("http_response", method=method, url=url, status=status, body=text[:200])
+
+        if status >= 400:
+            message = f"API Error: HTTP {status} on {method} {endpoint}"
+            if status == 401:
+                raise CalmAuthError("Invalid or expired token")
+            if status == 404:
+                raise CalmNotFoundError(message, status=status)
+            if status == 429:
+                raise CalmRateLimitError(message, retry_after=retry_after)
+            raise CalmAPIError(message, status=status)
 
         try:
-            request_kwargs: dict = {}
-            if cookies:
-                request_kwargs["cookies"] = cookies
-
-            logger.debug(
-                "http_request",
-                method=method,
-                url=url,
-                headers=headers,
-                body=kwargs.get("json") or kwargs.get("data"),
-            )
-            response = await self._client.request(
-                method,
-                url,
-                headers=headers,
-                **request_kwargs,
-                **kwargs,
-            )
-
-            logger.debug(
-                "http_response",
-                method=method,
-                url=url,
-                status=response.status_code,
-                body=response.text[:200],
-            )
-
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.debug(
-                "http_error",
-                method=method,
-                url=url,
-                status=e.response.status_code,
-                body=e.response.text[:200],
-            )
-            if e.response.status_code == 401:
-                raise CalmAuthError("Invalid or expired token") from e
-            if e.response.status_code == 429:
-                raise CalmRateLimitError(f"Rate limited: {e}", retry_after=_retry_after(e.response)) from e
-            raise CalmAPIError(f"API Error: {e}") from e
+            return json.loads(text)
+        except ValueError as e:
+            raise CalmConnectionError(f"Invalid JSON from {method} {endpoint}: {text[:200]!r}", status=status) from e
 
     async def get_feed(self, category: str) -> Feed:
         """Fetch a category feed (sleep, meditate, music, wisdom)."""
@@ -429,7 +474,8 @@ class CalmClient:
         ``is_available(guide, program)``.
 
         Raises:
-            CalmAPIError: If the guide is not part of the program Calm names for it.
+            CalmNotFoundError: If the guide does not exist, or is not part of the program
+                Calm names for it.
         """
         summary = await self.get_guide_summary(guide_id)
         program = await self.get_program(summary.program_id or summary.id)
@@ -439,7 +485,7 @@ class CalmClient:
         for guide in program.guides:
             if guide.id == guide_id:
                 return guide, program
-        raise CalmAPIError(f"Guide {guide_id} not found in program {program.id}")
+        raise CalmNotFoundError(f"Guide {guide_id} not found in program {program.id}")
 
     async def browse(self, path: str = "") -> list[PackItem]:
         """List the entries at a browse path, as a tree any integration can walk.
@@ -475,8 +521,10 @@ class CalmClient:
         raise ValueError(f"Not a Calm browse path: {path!r}")
 
     async def close(self) -> None:
-        """Close the underlying http client."""
-        await self._client.aclose()
+        """Close the HTTP session if the client opened it; a caller's session stays open."""
+        if self._owns_session and self._session is not None:
+            await self._session.close()
+            self._session = None
 
     async def aclose(self) -> None:
         """Alias for close."""
@@ -496,9 +544,9 @@ class CalmClient:
         await self.close()
 
 
-def _retry_after(response: httpx.Response) -> float | None:
+def _retry_after(headers: Mapping[str, str]) -> float | None:
     """Return the ``Retry-After`` wait in seconds, or None when absent or not a number."""
     try:
-        return max(0.0, float(response.headers["Retry-After"]))
+        return max(0.0, float(headers["Retry-After"]))
     except (KeyError, ValueError):
         return None
